@@ -72,6 +72,7 @@ public class Server implements HttpServer {
 
     private static final Counter requests = Metrics.counter( "oap_http_requests" );
     private static final Counter handled = Metrics.counter( "oap_http_handled" );
+    private static final Counter error = Metrics.counter( "oap_http_error" );
     private static final Counter keepaliveTimeout = Metrics.counter( "oap_http_keepalive_timeout" );
 
     private final ConcurrentHashMap<String, ServerHttpContext> connections = new ConcurrentHashMap<>();
@@ -166,10 +167,13 @@ public class Server implements HttpServer {
                     if( log.isTraceEnabled() )
                         log.trace( "{}: timeout", connection );
                 } catch( SocketException | SSLException e ) {
+                    error.increment();
                     log.debug( "{}: {}", connection, e.getMessage() );
                 } catch( ConnectionClosedException e ) {
+                    error.increment();
                     log.debug( "connection closed: {}", connection );
                 } catch( Throwable e ) {
+                    error.increment();
                     log.error( e.getMessage(), e );
                 } finally {
                     var info = connections.remove( connectionId );
