@@ -22,31 +22,27 @@
  * SOFTWARE.
  */
 
-package oap.http.testng;
+package oap.http;
 
-import lombok.SneakyThrows;
-import oap.http.Context;
-import oap.http.Protocol;
-import oap.http.Request;
-import oap.http.ServerHttpContext;
-import org.apache.http.HttpRequest;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.protocol.BasicHttpContext;
+import oap.http.cors.RequestCors;
+import oap.http.testng.MockRequest;
+import org.apache.http.ProtocolVersion;
+import org.apache.http.message.BasicHttpResponse;
 
-import java.net.InetAddress;
+import java.util.List;
 
-public class MockRequest extends Request {
-    public MockRequest( HttpRequest req ) {
-        super( req, new Context( "", getLocalHost(), new ServerHttpContext( new BasicHttpContext(), Protocol.HTTP, null ) ) );
+/**
+ * Created by igor.petrenko on 2020-04-09.
+ */
+public class MockResponse extends Response {
+    public HttpResponse response;
+
+    public MockResponse() {
+        super( new MockRequest(), new BasicHttpResponse( new ProtocolVersion( "1.1", 1, 1 ), 200, "" ), new RequestCors( null, null, true, true, List.of() ) );
     }
 
-    public MockRequest() {
-        this( new HttpGet() );
+    @Override
+    public void respond( HttpResponse response ) {
+        this.response = response;
     }
-
-    @SneakyThrows
-    private static InetAddress getLocalHost() {
-        return InetAddress.getLocalHost();
-    }
-
 }

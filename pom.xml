@@ -58,7 +58,7 @@
     </repositories>
 
     <properties>
-        <oap.project.version>6.7.1000</oap.project.version>
+        <oap.project.version>6.7.1001</oap.project.version>
 
         <oap.deps.maven.plugin.build-helper.version>1.10</oap.deps.maven.plugin.build-helper.version>
 
