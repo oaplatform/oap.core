@@ -32,6 +32,7 @@ import oap.storage.MongoPersistenceTest;
 import oap.testng.Fixtures;
 import org.testng.annotations.Test;
 
+import static oap.storage.ReplicationLog.ReplicationConfiguration.DISABLED;
 import static oap.storage.Storage.Lock.SERIALIZED;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -53,7 +54,7 @@ public class MongoFixtureTest extends Fixtures {
         mongoFixture.insertDocument( MongoPersistenceTest.class, collection, "migration/1.json" );
         mongoFixture.insertDocument( MongoPersistenceTest.class, collection, "migration/2.json" );
         mongoFixture.initializeVersion( new Version( 1 ) );
-        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED );
+        var storage = new MemoryStorage<>( "migration", beanIdentifier, SERIALIZED, DISABLED );
         try( var mongoClient = mongoFixture.createMongoClient( "oap.storage.mongo.mongomigrationtest" );
              var persistence = new MongoPersistence<>( mongoClient, collection, 6000, storage ) ) {
             mongoClient.preStart();

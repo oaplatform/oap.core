@@ -37,6 +37,7 @@ import org.testng.annotations.Test;
 import java.nio.file.Path;
 import java.util.List;
 
+import static oap.storage.ReplicationLog.ReplicationConfiguration.DISABLED;
 import static oap.storage.Storage.Lock.SERIALIZED;
 import static oap.testng.TestDirectoryFixture.deployTestData;
 import static oap.testng.TestDirectoryFixture.testPath;
@@ -55,7 +56,7 @@ public class DirectoryPersistenceMigrationTest extends Fixtures {
     @Test
     public void migration() {
         Path path = deployTestData( getClass() );
-        var storage = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var storage = new MemoryStorage<>( "migration", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, 10, 2, List.of(
             new MigrationV1(),
             new MigrationV2()
@@ -78,7 +79,7 @@ public class DirectoryPersistenceMigrationTest extends Fixtures {
     @Test
     public void storeWithVersion() {
         Path path = testPath( "data" );
-        var storage = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var storage = new MemoryStorage<>( "storeWithVersion", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, 10, 10, Lists.empty(), storage ) ) {
             persistence.preStart();
             storage.store( new Bean( "1" ) );

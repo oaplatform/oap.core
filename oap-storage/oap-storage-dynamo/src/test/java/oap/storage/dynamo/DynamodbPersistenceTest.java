@@ -26,13 +26,13 @@ package oap.storage.dynamo;
 
 import com.google.common.collect.ImmutableMap;
 import lombok.extern.slf4j.Slf4j;
-import oap.storage.dynamo.client.Key;
-import oap.storage.dynamo.client.batch.WriteBatchOperationHelper;
-import oap.storage.dynamo.client.crud.CreateItemOperation;
 import oap.id.Identifier;
 import oap.storage.DynamoPersistence;
 import oap.storage.MemoryStorage;
 import oap.storage.Metadata;
+import oap.storage.dynamo.client.Key;
+import oap.storage.dynamo.client.batch.WriteBatchOperationHelper;
+import oap.storage.dynamo.client.crud.CreateItemOperation;
 import oap.storage.dynamo.client.fixtures.AbstractDynamodbFixture;
 import oap.storage.dynamo.client.fixtures.TestContainerDynamodbFixture;
 import oap.testng.Fixtures;
@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static oap.storage.ReplicationLog.ReplicationConfiguration.DISABLED;
 import static oap.storage.Storage.Lock.SERIALIZED;
 import static oap.testng.Asserts.assertEventually;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,32 +57,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class DynamodbPersistenceTest extends Fixtures {
 
     private final AbstractDynamodbFixture fixture = new TestContainerDynamodbFixture();
-
-    public DynamodbPersistenceTest() {
-        fixture( fixture );
-        fixture( TestDirectoryFixture.FIXTURE );
-    }
-
     private final Identifier<String, Bean> beanIdentifier =
         Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.name )
             .build();
-
     private Function<Map<String, AttributeValue>, Metadata<Bean>> fromDynamo = map -> {
         final Metadata<Bean> metadata = new Metadata<>() {};
         metadata.object = new Bean( map.get( "id" ).s(), map.get( "firstName" ).s() );
         return metadata;
     };
-
     private Function<Metadata<Bean>, Map<String, Object>> toDynamo = metadata -> {
         final HashMap<String, Object> objectHashMap = new HashMap<>();
         objectHashMap.put( "firstName", metadata.object.name );
         return objectHashMap;
     };
 
+    public DynamodbPersistenceTest() {
+        fixture( fixture );
+        fixture( TestDirectoryFixture.FIXTURE );
+    }
+
     @Test
     public void load() {
-        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED );
+        var storage = new MemoryStorage<>( "load", beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -102,7 +100,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void watch() {
-        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED );
+        var storage = new MemoryStorage<>( "watch", beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -122,7 +120,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void sync() {
-        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED );
+        var storage = new MemoryStorage<>( "sync", beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -146,7 +144,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void syncWithDeletedItems() {
-        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED );
+        var storage = new MemoryStorage<>( "syncWithDeletedItems", beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -170,7 +168,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void bothStoragesShouldBeEmpty() {
-        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED );
+        var storage = new MemoryStorage<>( "bothStoragesShouldBeEmpty", beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();

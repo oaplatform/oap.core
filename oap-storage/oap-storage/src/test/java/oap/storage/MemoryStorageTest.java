@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static oap.id.Identifier.Option.FILL;
+import static oap.storage.ReplicationLog.ReplicationConfiguration.DISABLED;
 import static oap.storage.Storage.Lock.SERIALIZED;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,10 +43,10 @@ public class MemoryStorageTest {
     @Test
     public void update() {
         var storage = new MemoryStorage<>(
-            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
-                .suggestion( b -> b.s )
-                .build(),
-            SERIALIZED );
+            "update", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            .suggestion( b -> b.s )
+            .build(),
+            SERIALIZED, DISABLED );
         List<String> ids = new ArrayList<>();
         storage.addDataListener( new Storage.DataListener<>() {
             @Override
@@ -63,10 +64,10 @@ public class MemoryStorageTest {
     @Test
     public void updateWithId() {
         var storage = new MemoryStorage<>(
-            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
-                .suggestion( b -> b.s )
-                .build(),
-            SERIALIZED );
+            "updateWithId", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            .suggestion( b -> b.s )
+            .build(),
+            SERIALIZED, DISABLED );
         List<String> ids = new ArrayList<>();
         storage.addDataListener( new Storage.DataListener<>() {
             @Override
@@ -84,10 +85,10 @@ public class MemoryStorageTest {
     @Test
     public void get() {
         var storage = new MemoryStorage<>(
-            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
-                .suggestion( b -> b.s )
-                .build(),
-            SERIALIZED );
+            "get", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            .suggestion( b -> b.s )
+            .build(),
+            SERIALIZED, DISABLED );
         Bean bean = new Bean( "id" );
         assertThat( storage.get( bean.id, () -> bean ) ).isEqualTo( bean );
         assertThat( storage.list() ).containsOnly( bean );
@@ -99,11 +100,11 @@ public class MemoryStorageTest {
     @Test( enabled = false )
     public void concurrentInsertConflict() {
         var storage = new MemoryStorage<>(
-            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
-                .suggestion( b -> b.s )
-                .options( FILL )
-                .build(),
-            SERIALIZED );
+            "concurrentInsertConflict", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            .suggestion( b -> b.s )
+            .options( FILL )
+            .build(),
+            SERIALIZED, DISABLED );
         Benchmark.benchmark( "insert-failure", 1000, () -> storage.store( new Bean( null, "BBBBB" ) ) )
             .inThreads( 100 )
             .experiments( 1 )
@@ -113,7 +114,7 @@ public class MemoryStorageTest {
 
     @Test
     public void intId() {
-        var storage = new MemoryStorage<>( IntIdentifier.<IntBean>forId( b -> b.id, ( b, id ) -> b.id = id ).build(), SERIALIZED );
+        var storage = new MemoryStorage<>( "intId", IntIdentifier.<IntBean>forId( b -> b.id, ( b, id ) -> b.id = id ).build(), SERIALIZED, DISABLED );
         var a = new IntBean( null, "a" );
         var b = new IntBean( 2, "b" );
         var c = new IntBean( null, "c" );

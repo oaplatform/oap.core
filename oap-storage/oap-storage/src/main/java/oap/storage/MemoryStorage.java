@@ -23,25 +23,18 @@
  */
 package oap.storage;
 
-import lombok.AllArgsConstructor;
-import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import oap.id.Identifier;
 import oap.storage.Storage.DataListener.IdObject;
 import oap.util.BiStream;
-import oap.util.Cuid;
-import oap.util.Dates;
 import oap.util.Lists;
 import oap.util.Pair;
 import oap.util.Stream;
-import org.apache.commons.collections4.queue.CircularFifoQueue;
 import org.joda.time.DateTimeUtils;
 
 import javax.annotation.Nonnull;
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -58,24 +51,20 @@ import static oap.storage.Storage.DataListener.IdObject.__io;
 
 @Slf4j
 public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, T> {
-    public static final int DEFAULT_REPLICATION_QUEUE_SIZE = 1024;
-    public static final long DEFAULT_REPLICATION_QUEUE_DURATION = Dates.m( 10 );
-
     public final Identifier<I, T> identifier;
-    public final String sessionId = Cuid.UNIQUE.next();
     protected final Lock lock;
     protected final List<DataListener<I, T>> dataListeners = new CopyOnWriteArrayList<>();
     protected final Memory<T, I> memory;
     private final Predicate<I> conflict = Identifier.toConflict( this::get );
 
-    public MemoryStorage( Identifier<I, T> identifier, Lock lock ) {
-        this( identifier, lock, DEFAULT_REPLICATION_QUEUE_SIZE );
+    public MemoryStorage( String uniqueName, Identifier<I, T> identifier, Lock lock ) {
+        this( uniqueName, identifier, lock, new ReplicationLog.ReplicationConfiguration() );
     }
 
-    public MemoryStorage( Identifier<I, T> identifier, Lock lock, int replicationQueueSize ) {
+    public MemoryStorage( String uniqueName, Identifier<I, T> identifier, Lock lock, ReplicationLog.ReplicationConfiguration replicationConfiguration ) {
         this.identifier = identifier;
         this.lock = lock;
-        this.memory = new Memory<>( lock, replicationQueueSize );
+        this.memory = new Memory<>( uniqueName, lock, new ReplicationLog<>( uniqueName, replicationConfiguration ) );
     }
 
     public Stream<T> select( boolean liveOnly ) {
@@ -252,24 +241,19 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
 
     @Override
     public ReplicationInfo<I> deletedSince( long since ) {
-        var ret = new HashSet<I>();
-        this.memory.deleted.forEach( entry -> {
-            if( entry.time >= since ) {
-                ret.add( entry.id );
-            }
-        } );
-
-        return new ReplicationInfo<>( sessionId, ret );
+        return memory.deletedSince( since );
     }
 
     protected static class Memory<T, I> {
+        public final String uniqueName;
         final ConcurrentMap<I, Metadata<T>> data = new ConcurrentHashMap<>();
         private final Lock lock;
-        private final CircularFifoQueue<ReplicationEntry<I>> deleted;
+        private final ReplicationLog<I> replicationLog;
 
-        public Memory( Lock lock, int replicationQueueSize ) {
+        public Memory( String uniqueName, Lock lock, ReplicationLog<I> replicationLog ) {
+            this.uniqueName = uniqueName;
             this.lock = lock;
-            this.deleted = new CircularFifoQueue<>( replicationQueueSize );
+            this.replicationLog = replicationLog;
         }
 
         public BiStream<I, Metadata<T>> selectLive() {
@@ -320,9 +304,7 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
             long now = DateTimeUtils.currentTimeMillis();
             List<Pair<I, Metadata<T>>> ms = selectLive().toList();
             ms.forEach( p -> {
-                synchronized( deleted ) {
-                    deleted.add( new ReplicationEntry<>( now, p._1 ) );
-                }
+                replicationLog.delete( now, p._1 );
                 p._2.delete();
             } );
             return ms;
@@ -333,9 +315,7 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
                 Metadata<T> metadata = data.get( id );
                 if( metadata != null ) {
                     metadata.delete();
-                    synchronized( deleted ) {
-                        deleted.add( new ReplicationEntry<>( DateTimeUtils.currentTimeMillis(), id ) );
-                    }
+                    replicationLog.delete( DateTimeUtils.currentTimeMillis(), id );
                     return Optional.of( metadata );
                 } else return Optional.empty();
             } );
@@ -353,12 +333,8 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
             return selectLive().mapToObj( ( id, m ) -> id );
         }
 
-    }
-
-    @ToString
-    @AllArgsConstructor
-    public static class ReplicationEntry<I> implements Serializable {
-        public final long time;
-        public final I id;
+        public ReplicationInfo<I> deletedSince( long since ) {
+            return replicationLog.deletedSince( since );
+        }
     }
 }

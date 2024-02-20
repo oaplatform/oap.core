@@ -49,8 +49,8 @@ public class ReplicatorTest {
 
     @Test
     public void masterSlave() {
-        var slave = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
-        var master = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var slave = new MemoryStorage<>( "slave", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var master = new MemoryStorage<>( "master", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
         try( var replicator = new Replicator<>( slave, master, 50 ) ) {
 
             var updates = new AtomicInteger();
@@ -103,8 +103,8 @@ public class ReplicatorTest {
 
     @Test
     public void replicateNow() {
-        var slave = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
-        var master = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var slave = new MemoryStorage<>( "slave", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var master = new MemoryStorage<>( "master", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
         try( var replicator = new Replicator<>( slave, master, 5000 ) ) {
             master.store( new Bean( "1" ) );
             master.store( new Bean( "2" ) );
@@ -115,8 +115,8 @@ public class ReplicatorTest {
 
     @Test
     public void testSyncSafe() {
-        var slave = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
-        var master = new MemoryStorage<>( Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var slave = new MemoryStorage<>( "slave", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
+        var master = new MemoryStorage<>( "master", Identifier.<Bean>forId( b -> b.id ).build(), SERIALIZED );
         try( var replicator = new Replicator<>( slave, master, 5000 ) ) {
             DateTimeUtils.setCurrentMillisFixed( 1 );
 
