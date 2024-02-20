@@ -24,11 +24,22 @@
 
 package oap.storage;
 
-import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.ToString;
+
+import java.io.Serializable;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public interface ReplicationMaster<I, T> {
     Stream<Metadata<T>> updatedSince( long since );
 
-    List<I> ids();
+    ReplicationInfo<I> deletedSince( long since );
+
+    @ToString
+    @AllArgsConstructor
+    class ReplicationInfo<I> implements Serializable {
+        public final String session;
+        public final Set<I> ids;
+    }
 }

@@ -25,12 +25,13 @@
 package oap.storage;
 
 import com.google.common.hash.Hashing;
+import lombok.AllArgsConstructor;
+import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import oap.concurrent.scheduler.Scheduled;
 import oap.concurrent.scheduler.Scheduler;
 import oap.storage.Storage.DataListener.IdObject;
 import oap.util.Cuid;
-import oap.util.Pair;
 
 import java.io.Closeable;
 import java.io.UncheckedIOException;
@@ -40,9 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static java.util.stream.Collectors.toList;
 import static oap.storage.Storage.DataListener.IdObject.__io;
-import static oap.util.Pair.__;
 
 /**
  * Replicator works on the MemoryStorage internals. It's intentional.
@@ -57,7 +56,7 @@ public class Replicator<I, T> implements Closeable {
     private final MemoryStorage<I, T> slave;
     private final ReplicationMaster<I, T> master;
     private Scheduled scheduled;
-    private transient Pair<Long, String> lastModified = __( -1L, "" );
+    private transient LastModified lastModified = LastModified.notSynced();
 
     public Replicator( MemoryStorage<I, T> slave, ReplicationMaster<I, T> master, long interval ) {
         this.slave = slave;
@@ -65,8 +64,8 @@ public class Replicator<I, T> implements Closeable {
         this.scheduled = Scheduler.scheduleWithFixedDelay( getClass(), interval, i -> {
             var newLastModified = replicate( lastModified );
             log.trace( "[{}] newLastModified = {}, lastModified = {}", uniqueName, newLastModified, lastModified );
-            if( newLastModified._2.equals( lastModified._2 ) ) {
-                lastModified = newLastModified.map( ( t, m ) -> __( t + 1, m ) );
+            if( newLastModified.hash.equals( lastModified.hash ) ) {
+                lastModified = newLastModified.cloneWithIncTime();
             } else {
                 lastModified = newLastModified;
             }
@@ -84,18 +83,26 @@ public class Replicator<I, T> implements Closeable {
     }
 
     public void replicateAllNow() {
-        lastModified = __( -1L, "" );
+        lastModified = LastModified.notSynced();
         replicateNow();
     }
 
-    public synchronized Pair<Long, String> replicate( Pair<Long, String> last ) {
+    public synchronized LastModified replicate( LastModified last ) {
         log.trace( "replicate service {} last {}", uniqueName, last );
+
+        var replicationInfo = master.deletedSince( last.time );
+
+        if( !replicationInfo.session.equals( last.sessionId ) && last.time > 0 ) {
+            log.info( "force resync" );
+            lastModified = LastModified.notSynced();
+            return replicate( lastModified );
+        }
 
         List<Metadata<T>> newUpdates;
 
-        try( var updates = master.updatedSince( last._1 ) ) {
+        try( var updates = master.updatedSince( last.time ) ) {
             log.trace( "[{}] replicate {} to {} last: {}", master, slave, last, uniqueName );
-            newUpdates = updates.collect( toList() );
+            newUpdates = updates.toList();
             log.trace( "[{}] updated objects {}", uniqueName, newUpdates.size() );
         } catch( UncheckedIOException e ) {
             log.error( e.getCause().getMessage() );
@@ -111,7 +118,7 @@ public class Replicator<I, T> implements Closeable {
         var added = new ArrayList<IdObject<I, T>>();
         var updated = new ArrayList<IdObject<I, T>>();
 
-        var lastUpdate = newUpdates.stream().mapToLong( m -> m.modified ).max().orElse( last._1 );
+        var lastUpdate = newUpdates.stream().mapToLong( m -> m.modified ).max().orElse( last.time );
 
         var hasher = Hashing.murmur3_128().newHasher();
 
@@ -121,7 +128,7 @@ public class Replicator<I, T> implements Closeable {
             .filter( metadata -> metadata.modified == finalLastUpdate )
             .map( metadata -> slave.identifier.get( metadata.object ).toString() )
             .sorted()
-            .collect( toList() );
+            .toList();
 
         for( var id : list ) {
             hasher = hasher.putUnencodedChars( id );
@@ -129,7 +136,11 @@ public class Replicator<I, T> implements Closeable {
         var hash = hasher.hash().toString();
 
 
-        if( lastUpdate != last._1 || !hash.equals( last._2 ) ) {
+        if( replicationInfo.session != lastModified.sessionId ) {
+            slave.memory.data.clear();
+        }
+
+        if( lastUpdate != last.time || !hash.equals( last.hash ) ) {
             for( var metadata : newUpdates ) {
                 log.trace( "[{}] replicate {}", metadata, uniqueName );
 
@@ -148,25 +159,24 @@ public class Replicator<I, T> implements Closeable {
             stored.addAndGet( newUpdates.size() );
         }
 
-        var ids = master.ids();
-        log.trace( "[{}] master ids {}", uniqueName, ids );
-        if( ids.isEmpty() ) lastUpdate = -1;
-
-        List<IdObject<I, T>> deleted = slave.memory.selectLiveIds()
-            .filter( id -> !ids.contains( id ) )
+        List<IdObject<I, T>> deleted = replicationInfo
+            .ids
+            .stream()
             .map( id -> slave.memory.removePermanently( id ).map( m -> __io( id, m.object ) ) )
             .filter( Optional::isPresent )
             .map( Optional::get )
             .toList();
-        log.trace( "[{}] deleted {}", uniqueName, deleted );
+
+        log.trace( "[{}] deleted {}", uniqueName, replicationInfo.ids );
         slave.fireDeleted( deleted );
+
         if( !added.isEmpty() || !updated.isEmpty() || !deleted.isEmpty() ) {
             slave.fireChanged( added, updated, deleted );
         }
 
         Replicator.deleted.addAndGet( deleted.size() );
 
-        return __( lastUpdate, hash );
+        return new LastModified( lastUpdate, hash, replicationInfo.session );
     }
 
     public void preStop() {
@@ -180,6 +190,22 @@ public class Replicator<I, T> implements Closeable {
             Scheduled.cancel( scheduled );
         } catch( Exception e ) {
             log.error( e.getMessage(), e );
+        }
+    }
+
+    @ToString
+    @AllArgsConstructor
+    public static class LastModified {
+        public final long time;
+        public final String hash;
+        public final String sessionId;
+
+        public static LastModified notSynced() {
+            return new LastModified( -1, "", "" );
+        }
+
+        public LastModified cloneWithIncTime() {
+            return new LastModified( time + 1, hash, sessionId );
         }
     }
 }
