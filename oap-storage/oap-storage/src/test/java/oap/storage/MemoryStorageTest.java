@@ -43,7 +43,7 @@ public class MemoryStorageTest {
     @Test
     public void update() {
         var storage = new MemoryStorage<>(
-            "update", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
             .suggestion( b -> b.s )
             .build(),
             SERIALIZED, DISABLED );
@@ -64,7 +64,7 @@ public class MemoryStorageTest {
     @Test
     public void updateWithId() {
         var storage = new MemoryStorage<>(
-            "updateWithId", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
             .suggestion( b -> b.s )
             .build(),
             SERIALIZED, DISABLED );
@@ -85,7 +85,7 @@ public class MemoryStorageTest {
     @Test
     public void get() {
         var storage = new MemoryStorage<>(
-            "get", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
             .suggestion( b -> b.s )
             .build(),
             SERIALIZED, DISABLED );
@@ -100,7 +100,7 @@ public class MemoryStorageTest {
     @Test( enabled = false )
     public void concurrentInsertConflict() {
         var storage = new MemoryStorage<>(
-            "concurrentInsertConflict", Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
+            Identifier.<Bean>forId( b -> b.id, ( b, id ) -> b.id = id )
             .suggestion( b -> b.s )
             .options( FILL )
             .build(),
@@ -114,7 +114,7 @@ public class MemoryStorageTest {
 
     @Test
     public void intId() {
-        var storage = new MemoryStorage<>( "intId", IntIdentifier.<IntBean>forId( b -> b.id, ( b, id ) -> b.id = id ).build(), SERIALIZED, DISABLED );
+        var storage = new MemoryStorage<>( IntIdentifier.<IntBean>forId( b -> b.id, ( b, id ) -> b.id = id ).build(), SERIALIZED, DISABLED );
         var a = new IntBean( null, "a" );
         var b = new IntBean( 2, "b" );
         var c = new IntBean( null, "c" );

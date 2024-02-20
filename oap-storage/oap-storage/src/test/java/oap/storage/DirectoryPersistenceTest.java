@@ -55,7 +55,7 @@ public class DirectoryPersistenceTest extends Fixtures {
     @Test
     public void load() {
         Path path = deployTestData( getClass() );
-        var storage = new MemoryStorage<>( "load", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, storage ) ) {
@@ -68,7 +68,7 @@ public class DirectoryPersistenceTest extends Fixtures {
     @Test
     public void persist() {
         Path path = testPath( "data" );
-        var storage1 = new MemoryStorage<>( "persist1", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage1 = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, storage1 ) ) {
@@ -77,7 +77,7 @@ public class DirectoryPersistenceTest extends Fixtures {
             storage1.store( new Bean( "2" ) );
         }
 
-        var storage2 = new MemoryStorage<>( "persist2", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage2 = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, storage2 ) ) {
@@ -91,7 +91,7 @@ public class DirectoryPersistenceTest extends Fixtures {
     public void persistFsLayout() {
         Path path = testPath( "data" );
         BiFunction<Path, Bean, Path> fsResolve = ( p, o ) -> p.resolve( o.s );
-        var storage1 = new MemoryStorage<>( "persistFsLayout1", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage1 = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, fsResolve, 50, 0, empty(), storage1 ) ) {
@@ -103,7 +103,7 @@ public class DirectoryPersistenceTest extends Fixtures {
         assertThat( path.resolve( "aaa/1.json" ) ).exists();
         assertThat( path.resolve( "aaa/2.json" ) ).exists();
 
-        var storage = new MemoryStorage<>( "persistFsLayout2", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, fsResolve, 50, 0, empty(), storage ) ) {
@@ -117,7 +117,7 @@ public class DirectoryPersistenceTest extends Fixtures {
     @Test
     public void restructureFsLayout() {
         Path path = testPath( "data" );
-        var storage1 = new MemoryStorage<>( "restructureFsLayout1", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage1 = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, storage1 ) ) {
@@ -132,7 +132,7 @@ public class DirectoryPersistenceTest extends Fixtures {
         assertThat( path.resolve( "1.json" ) ).exists();
         assertThat( path.resolve( "2.json" ) ).exists();
 
-        var storage2 = new MemoryStorage<>( "restructureFsLayout2", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage2 = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence =
@@ -152,7 +152,7 @@ public class DirectoryPersistenceTest extends Fixtures {
     @Test
     public void storeAndUpdate() {
         Path path = testPath( "data" );
-        var storage1 = new MemoryStorage<>( "storeAndUpdate1", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage1 = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, storage1 ) ) {
@@ -164,7 +164,7 @@ public class DirectoryPersistenceTest extends Fixtures {
             } );
         }
 
-        var storage2 = new MemoryStorage<>( "storeAndUpdate2", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage2 = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, storage2 ) ) {
@@ -177,7 +177,7 @@ public class DirectoryPersistenceTest extends Fixtures {
     @Test
     public void delete() {
         Path path = testPath( "data" );
-        var storage = new MemoryStorage<>( "delete", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, 50, 0, empty(), storage ) ) {
@@ -196,7 +196,7 @@ public class DirectoryPersistenceTest extends Fixtures {
     @Test
     public void deleteVersion() {
         Path path = testPath( "data" );
-        var storage = new MemoryStorage<>( "deleteVersion", Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
+        var storage = new MemoryStorage<>( Identifier.<Bean>forId( o -> o.id, ( o, id ) -> o.id = id )
             .suggestion( o -> o.s )
             .build(), SERIALIZED, DISABLED );
         try( var persistence = new DirectoryPersistence<>( path, 50, 1, empty(), storage ) ) {

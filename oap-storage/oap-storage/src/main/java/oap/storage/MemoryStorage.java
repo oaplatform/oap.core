@@ -23,10 +23,12 @@
  */
 package oap.storage;
 
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import oap.id.Identifier;
 import oap.storage.Storage.DataListener.IdObject;
 import oap.util.BiStream;
+import oap.util.Cuid;
 import oap.util.Lists;
 import oap.util.Pair;
 import oap.util.Stream;
@@ -56,15 +58,21 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
     protected final List<DataListener<I, T>> dataListeners = new CopyOnWriteArrayList<>();
     protected final Memory<T, I> memory;
     private final Predicate<I> conflict = Identifier.toConflict( this::get );
+    public String uniqueName = Cuid.UNIQUE.next();
 
-    public MemoryStorage( String uniqueName, Identifier<I, T> identifier, Lock lock ) {
-        this( uniqueName, identifier, lock, new ReplicationLog.ReplicationConfiguration() );
+    public MemoryStorage( Identifier<I, T> identifier, Lock lock ) {
+        this( identifier, lock, new ReplicationLog.ReplicationConfiguration() );
     }
 
-    public MemoryStorage( String uniqueName, Identifier<I, T> identifier, Lock lock, ReplicationLog.ReplicationConfiguration replicationConfiguration ) {
+    public MemoryStorage( Identifier<I, T> identifier, Lock lock, ReplicationLog.ReplicationConfiguration replicationConfiguration ) {
         this.identifier = identifier;
         this.lock = lock;
         this.memory = new Memory<>( uniqueName, lock, new ReplicationLog<>( uniqueName, replicationConfiguration ) );
+    }
+
+    public void setUniqueName( String uniqueName ) {
+        this.uniqueName = uniqueName;
+        memory.setUniqueName( uniqueName );
     }
 
     public Stream<T> select( boolean liveOnly ) {
@@ -233,7 +241,7 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
 
     @Override
     public Stream<Metadata<T>> updatedSince( long since ) {
-        log.trace( "requested updated objects since={}, total objects={}", since, memory.data.size() );
+        log.trace( "[{}] requested updated objects since={}, total objects={}", uniqueName, since, memory.data.size() );
         return memory.selectLive()
             .mapToObj( ( id, m ) -> m )
             .filter( m -> m.modified >= since );
@@ -245,10 +253,11 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
     }
 
     protected static class Memory<T, I> {
-        public final String uniqueName;
         final ConcurrentMap<I, Metadata<T>> data = new ConcurrentHashMap<>();
         private final Lock lock;
         private final ReplicationLog<I> replicationLog;
+        @Setter
+        public String uniqueName;
 
         public Memory( String uniqueName, Lock lock, ReplicationLog<I> replicationLog ) {
             this.uniqueName = uniqueName;
@@ -277,7 +286,7 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
         public boolean put( @Nonnull I id, @Nonnull Metadata<T> m ) {
             requireNonNull( id );
             requireNonNull( m );
-            log.trace( "storing {}", m );
+            log.trace( "[{}] storing {}", uniqueName, m );
             return data.put( id, m ) == null;
         }
 
@@ -288,7 +297,7 @@ public class MemoryStorage<I, T> implements Storage<I, T>, ReplicationMaster<I, 
                 boolean isNew = !data.containsKey( id );
                 var nm = data.compute( id, ( anId, m ) -> m != null ? m.update( object )
                     : new Metadata<>( object ) );
-                log.trace( "storing {}", nm );
+                log.trace( "[{}] storing {}", uniqueName, nm );
                 return isNew;
             } );
         }

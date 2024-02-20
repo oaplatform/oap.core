@@ -79,7 +79,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void load() {
-        var storage = new MemoryStorage<>( "load", beanIdentifier, SERIALIZED, DISABLED );
+        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -100,7 +100,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void watch() {
-        var storage = new MemoryStorage<>( "watch", beanIdentifier, SERIALIZED, DISABLED );
+        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -120,7 +120,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void sync() {
-        var storage = new MemoryStorage<>( "sync", beanIdentifier, SERIALIZED, DISABLED );
+        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -144,7 +144,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void syncWithDeletedItems() {
-        var storage = new MemoryStorage<>( "syncWithDeletedItems", beanIdentifier, SERIALIZED, DISABLED );
+        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
@@ -168,7 +168,7 @@ public class DynamodbPersistenceTest extends Fixtures {
 
     @Test
     public void bothStoragesShouldBeEmpty() {
-        var storage = new MemoryStorage<>( "bothStoragesShouldBeEmpty", beanIdentifier, SERIALIZED, DISABLED );
+        var storage = new MemoryStorage<>( beanIdentifier, SERIALIZED, DISABLED );
         var dynamodbClient = fixture.getDynamodbClient();
         dynamodbClient.start();
         dynamodbClient.waitConnectionEstablished();
