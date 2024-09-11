@@ -46,44 +46,49 @@ import oap.util.Throwables;
 import oap.util.function.Try;
 import oap.util.function.Try.ThrowingRunnable;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.Header;
-import org.apache.http.HttpResponse;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.CookieStore;
-import org.apache.http.client.config.CookieSpecs;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpDelete;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPatch;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpPut;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.client.methods.HttpUriRequest;
-import org.apache.http.client.utils.DateUtils;
-import org.apache.http.concurrent.FutureCallback;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.ssl.DefaultHostnameVerifier;
-import org.apache.http.conn.util.PublicSuffixMatcherLoader;
-import org.apache.http.cookie.Cookie;
-import org.apache.http.entity.ByteArrayEntity;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.InputStreamEntity;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.DefaultConnectionKeepAliveStrategy;
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
-import org.apache.http.impl.nio.client.HttpAsyncClients;
+import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.core5.http.Header;
+import org.apache.hc.core5.http.HttpResponse;
+import org.apache.hc.core5.http.ClassicHttpResponse;
+import org.apache.hc.core5.http.NameValuePair;
+import org.apache.hc.client5.http.cookie.CookieStore;
+import org.apache.hc.client5.http.cookie.StandardCookieSpec;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.entity.UrlEncodedFormEntity;
+import org.apache.hc.client5.http.classic.methods.HttpDelete;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.classic.methods.HttpPatch;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.classic.methods.HttpPut;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequest;
+import org.apache.hc.client5.http.utils.DateUtils;
+import org.apache.hc.core5.concurrent.FutureCallback;
+import org.apache.hc.core5.http.config.RegistryBuilder;
+import org.apache.hc.client5.http.ssl.DefaultHostnameVerifier;
+import org.apache.hc.client5.http.psl.PublicSuffixMatcherLoader;
+import org.apache.hc.client5.http.cookie.Cookie;
+import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.io.entity.InputStreamEntity;
+import org.apache.hc.core5.http.io.entity.StringEntity;
+import org.apache.hc.client5.http.cookie.BasicCookieStore;
+import org.apache.hc.client5.http.impl.DefaultConnectionKeepAliveStrategy;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.HttpAsyncClientBuilder;
+import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
+import org.apache.hc.core5.http.message.BasicClassicHttpResponse;
+import org.apache.hc.core5.http.message.BasicHttpResponse;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
-import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
-import org.apache.http.impl.nio.reactor.IOReactorConfig;
-import org.apache.http.message.BasicNameValuePair;
+import org.apache.hc.core5.reactor.DefaultConnectingIOReactor;
+import org.apache.hc.core5.reactor.IOReactorConfig;
+import org.apache.hc.core5.http.message.BasicNameValuePair;
 import org.apache.http.nio.conn.NoopIOSessionStrategy;
 import org.apache.http.nio.conn.SchemeIOSessionStrategy;
 import org.apache.http.nio.conn.ssl.SSLIOSessionStrategy;
-import org.apache.http.nio.reactor.IOReactorException;
-import org.apache.http.ssl.SSLContexts;
+import org.apache.hc.core5.reactor.IOReactorShutdownException;
+import org.apache.hc.core5.ssl.SSLContexts;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -96,7 +101,6 @@ import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.UncheckedIOException;
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Date;
@@ -128,9 +132,9 @@ public final class Client implements Closeable, AutoCloseable {
         .onTimeout( c -> log.error( "timeout" ) )
         .build();
     public static final String NO_RESPONSE = "no response";
-    private static final FutureCallback<org.apache.http.HttpResponse> FUTURE_CALLBACK = new FutureCallback<>() {
+    private static final FutureCallback<SimpleHttpResponse> FUTURE_CALLBACK = new FutureCallback<>() {
         @Override
-        public void completed( org.apache.http.HttpResponse result ) {
+        public void completed( SimpleHttpResponse result ) {
         }
 
         @Override
@@ -161,8 +165,8 @@ public final class Client implements Closeable, AutoCloseable {
         return new ClientBuilder( null, null, Dates.m( 1 ), Dates.m( 5 ) );
     }
 
-    private static List<Pair<String, String>> headers( org.apache.http.HttpResponse response ) {
-        return Stream.of( response.getAllHeaders() )
+    private static List<Pair<String, String>> headers( HttpResponse response ) {
+        return Stream.of( response.getHeaders() )
             .map( h -> Pair.__( h.getName(), h.getValue() ) )
             .toList();
     }
@@ -228,17 +232,13 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Result<Response, Throwable> post( String uri, Map<String, Object> params, Map<String, Object> headers, long timeout ) {
-        try {
-            var request = new HttpPost( uri );
-            request.setEntity( new UrlEncodedFormEntity( Stream.of( params.entrySet() )
-                .<NameValuePair>map( e -> new BasicNameValuePair( e.getKey(),
-                    e.getValue() == null ? "" : e.getValue().toString() ) )
-                .toList()
-            ) );
-            return getResponse( request, Math.max( builder.timeout, timeout ), execute( request, headers ) );
-        } catch( UnsupportedEncodingException e ) {
-            throw new UncheckedIOException( e );
-        }
+        var request = new HttpPost( uri );
+        request.setEntity( new UrlEncodedFormEntity( Stream.of( params.entrySet() )
+            .<NameValuePair>map( e -> new BasicNameValuePair( e.getKey(),
+                e.getValue() == null ? "" : e.getValue().toString() ) )
+            .toList()
+        ) );
+        return getResponse( request, Math.max( builder.timeout, timeout ), execute( request, headers ) );
     }
 
     public Response post( String uri, String content, String contentType ) {
@@ -319,11 +319,11 @@ public final class Client implements Closeable, AutoCloseable {
             .orElseThrow( Throwables::propagate );
     }
 
-    private Result<Response, Throwable> getResponse( HttpRequestBase request, long timeout, CompletableFuture<Response> future ) {
+    private Result<Response, Throwable> getResponse( HttpUriRequestBase request, long timeout, CompletableFuture<Response> future ) {
         try {
             return Result.success( timeout == 0 ? future.get() : future.get( timeout, MILLISECONDS ) );
         } catch( ExecutionException e ) {
-            var newEx = new UncheckedIOException( request.getURI().toString(), new IOException( e.getCause().getMessage(), e.getCause() ) );
+            var newEx = new UncheckedIOException( request.getRequestUri(), new IOException( e.getCause().getMessage(), e.getCause() ) );
             builder.onError.accept( this, newEx );
             return Result.failure( e.getCause() );
         } catch( TimeoutException e ) {
@@ -441,24 +441,26 @@ public final class Client implements Closeable, AutoCloseable {
 
         client.execute( request, new FutureCallback<>() {
             @Override
-            public void completed( HttpResponse response ) {
+            public void completed( SimpleHttpResponse response ) {
                 try {
                     var responseHeaders = headers( response );
                     Response result;
+// SimpleHttpResponse doesn't have getEntity, but ClassicHttpResponse has it
+// but ClassicHttpResponse can't be used for client.execute()
                     if( response.getEntity() != null ) {
                         var entity = response.getEntity();
                         result = new Response(
-                            response.getStatusLine().getStatusCode(),
-                            response.getStatusLine().getReasonPhrase(),
+                            response.getCode(),
+                            response.getReasonPhrase(),
                             responseHeaders,
                             entity.getContentType() != null
-                                ? entity.getContentType().getValue()
+                                ? entity.getContentType()
                                 : APPLICATION_OCTET_STREAM,
                             entity.getContent()
                         );
                     } else result = new Response(
-                        response.getStatusLine().getStatusCode(),
-                        response.getStatusLine().getReasonPhrase(),
+                        response.getCode(),
+                        response.getReasonPhrase(),
                         responseHeaders
                     );
                     builder.onSuccess.accept( Client.this );
@@ -530,17 +532,17 @@ public final class Client implements Closeable, AutoCloseable {
         ifModifiedSince.ifPresent( ims -> request.addHeader( "If-Modified-Since", DateUtils.formatDate( new Date( ims ) ) ) );
         Future<HttpResponse> future = client.execute( request, FUTURE_CALLBACK );
         HttpResponse response = future.get();
-        if( response.getStatusLine().getStatusCode() == HTTP_OK && response.getEntity() != null )
+        if( response.getCode() == HTTP_OK && response.getEntity() != null )
             return Optional.of( response );
-        else if( response.getStatusLine().getStatusCode() == HTTP_MOVED_TEMP ) {
+        else if( response.getCode() == HTTP_MOVED_TEMP ) {
             Header location = response.getFirstHeader( "Location" );
             if( location == null ) throw new IOException( "redirect w/o location!" );
             log.debug( "following {}", location.getValue() );
             return resolve( location.getValue(), Optional.empty() );
-        } else if( response.getStatusLine().getStatusCode() == HTTP_NOT_MODIFIED ) {
+        } else if( response.getCode() == HTTP_NOT_MODIFIED ) {
             return Optional.empty();
         } else
-            throw new IOException( response.getStatusLine().toString() );
+            throw new IOException( response.getReasonPhrase() );
     }
 
     public void reset() {
@@ -696,7 +698,7 @@ public final class Client implements Closeable, AutoCloseable {
         private int maxConnTotal = 10000;
         private int maxConnPerRoute = 1000;
         private boolean redirectsEnabled = false;
-        private String cookieSpec = CookieSpecs.STANDARD;
+        private String cookieSpec = StandardCookieSpec.RELAXED;
 
         public ClientBuilder( Path certificateLocation, String certificatePassword, long connectTimeout, long timeout ) {
             cookieStore = new BasicCookieStore();
@@ -748,7 +750,7 @@ public final class Client implements Closeable, AutoCloseable {
                         .setCookieSpec( cookieSpec )
                         .build() )
                     .setDefaultCookieStore( cookieStore );
-            } catch( IOReactorException e ) {
+            } catch( IOReactorShutdownException e ) {
                 throw new UncheckedIOException( e );
             }
         }
@@ -796,12 +798,12 @@ public final class Client implements Closeable, AutoCloseable {
 
     public class OutputStreamWithResponse extends OutputStream implements Closeable, AutoCloseable {
         private final CompletableFuture<Response> completableFuture;
-        private final HttpRequestBase request;
+        private final HttpUriRequestBase request;
         private final long timeout;
         private PipedOutputStream pos;
         private Response response;
 
-        public OutputStreamWithResponse( PipedOutputStream pos, CompletableFuture<Response> completableFuture, HttpRequestBase request, long timeout ) {
+        public OutputStreamWithResponse( PipedOutputStream pos, CompletableFuture<Response> completableFuture, HttpUriRequestBase request, long timeout ) {
             this.pos = pos;
             this.completableFuture = completableFuture;
             this.request = request;

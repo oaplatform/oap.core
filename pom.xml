@@ -70,15 +70,16 @@
     </distributionManagement>
 
     <properties>
-        <oap.project.version>22.4.18</oap.project.version>
+        <oap.project.version>23.0.0</oap.project.version>
 
         <oap.deps.config.version>21.0.0</oap.deps.config.version>
         <oap.deps.oap-teamcity.version>21.0.1</oap.deps.oap-teamcity.version>
 
         <oap.deps.mockito.version>5.11.0</oap.deps.mockito.version>
 
-        <oap.deps.apache.httpcomponents.version>4.4.16</oap.deps.apache.httpcomponents.version>
-        <oap.deps.apache.httpclient.version>4.5.14</oap.deps.apache.httpclient.version>
+        <oap.deps.apache.httpclient5.version>5.3.1</oap.deps.apache.httpclient5.version>
+        <oap.deps.apache.httpcore5.version>5.2.5</oap.deps.apache.httpcore5.version>
+        <oap.deps.apache.httpcore-nio.version>4.4.16</oap.deps.apache.httpcore-nio.version>
         <oap.deps.apache.httpasyncclient.version>4.1.5</oap.deps.apache.httpasyncclient.version>
         <oap.deps.apache.httpmime.version>4.5.14</oap.deps.apache.httpmime.version>
 
