@@ -67,12 +67,12 @@ public class TsvWriterTest extends Fixtures {
 
         try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 ) ) {
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 ) ) {
 
             writer.write( CURRENT_PROTOCOL_VERSION, bytes );
         }
 
-        assertFile( logs.resolve( "1-file-00-198163-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-00-198163-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "RAW\n1\\n2\\n\\r3\\t4\n", GZIP );
     }
 
@@ -88,7 +88,7 @@ public class TsvWriterTest extends Fixtures {
 
         TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
 
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
 
@@ -96,14 +96,14 @@ public class TsvWriterTest extends Fixtures {
 
         writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1", "p2", "2" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
 
         writer.close();
 
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -117,9 +117,9 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz/2/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz/2.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -148,10 +148,10 @@ public class TsvWriterTest extends Fixtures {
         byte[] bytes = BinaryUtils.line( content );
         Path logs = testDirectoryFixture.testPath( "logs" );
         Files.write(
-            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz" ),
+            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ),
             PLAIN, "corrupted file", ContentWriter.ofString() );
         Files.write(
-            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ),
+            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ),
             PLAIN, """
                 ---
                 filePrefixPattern: ""
@@ -164,7 +164,7 @@ public class TsvWriterTest extends Fixtures {
 
         TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
 
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
 
@@ -178,7 +178,7 @@ public class TsvWriterTest extends Fixtures {
 
         writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
 
         Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
@@ -189,16 +189,16 @@ public class TsvWriterTest extends Fixtures {
 
         writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), newHeaders, newTypes ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
 
         Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
         writer.close();
 
 
-        assertFile( logs.resolve( "1-file-01-80723ad6-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-01-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-01-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-01-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -212,11 +212,11 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-80723ad6-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-02-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-02-80723ad6-2-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-02-80723ad6-2-UNKNOWN.log.gz/2/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-02-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-02-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -230,15 +230,15 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-11-80723ad6-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-11-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
 
-        assertFile( logs.resolve( "1-file-11-80723ad6-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-11-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
 
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "corrupted file" );
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -249,7 +249,7 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-ab96b20e-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-02-ab96b20e-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\tH2\n" + content + "\n", GZIP );
     }
 
@@ -289,17 +289,17 @@ public class TsvWriterTest extends Fixtures {
 
         try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 ) ) {
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 ) ) {
             writer.write( CURRENT_PROTOCOL_VERSION, BinaryUtils.line( "111", "222" ) );
         }
 
-        assertFile( logs.resolve( "1-file-00-ab96b20e-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-00-ab96b20e-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( """
                 REQUEST_ID\tH2
                 111\t222
                 """, GZIP );
 
-        assertFile( logs.resolve( "1-file-00-ab96b20e-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-00-ab96b20e-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -327,10 +327,10 @@ public class TsvWriterTest extends Fixtures {
         byte[] bytes = content.getBytes();
         Path logs = testDirectoryFixture.testPath( "logs" );
         Files.write(
-            logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz" ),
+            logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ),
             PLAIN, "corrupted file", ContentWriter.ofString() );
         Files.write(
-            logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz.metadata.yaml" ),
+            logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ),
             PLAIN, """
                 ---
                 filePrefixPattern: ""
@@ -341,7 +341,8 @@ public class TsvWriterTest extends Fixtures {
                 """, ContentWriter.ofString() );
 
         try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
-            new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 10 ) ) {
+            new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(),
+            1, 10, BPH_12, 10 ) ) {
             writer.write( TSV_V1, bytes );
 
             Dates.setTimeFixed( 2015, 10, 10, 1, 5 );
@@ -351,7 +352,8 @@ public class TsvWriterTest extends Fixtures {
             writer.write( TSV_V1, bytes );
         }
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN, new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 10 ) ) {
+        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN, new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(),
+            1, 10, BPH_12, 10 ) ) {
             Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
             writer.write( TSV_V1, bytes );
 
@@ -359,14 +361,15 @@ public class TsvWriterTest extends Fixtures {
             writer.write( TSV_V1, bytes );
         }
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN, new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { newHeaders }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 10 ) ) {
+        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN, new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { newHeaders }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(),
+            1, 10, BPH_12, 10 ) ) {
             Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
             writer.write( TSV_V1, bytes );
         }
 
-        assertFile( logs.resolve( "1-file-01-9042dc83-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-01-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content, GZIP );
-        assertFile( logs.resolve( "1-file-01-9042dc83-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-01-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -380,11 +383,11 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "9042dc83-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-9042dc83-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-02-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content, GZIP );
-        assertFile( logs.resolve( "1-file-02-9042dc83-2-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-02-9042dc83-2-UNKNOWN.log.gz/2/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content, GZIP );
-        assertFile( logs.resolve( "1-file-02-9042dc83-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-02-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -398,15 +401,15 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "9042dc83-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-11-9042dc83-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-11-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content, GZIP );
 
-        assertFile( logs.resolve( "1-file-11-9042dc83-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-11-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\n" + content, GZIP );
 
-        assertFile( logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "corrupted file" );
-        assertFile( logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz.metadata.yaml" ) )
+        assertFile( logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
             .hasContent( """
                 ---
                 filePrefixPattern: ""
@@ -416,7 +419,7 @@ public class TsvWriterTest extends Fixtures {
                 p: "1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-e56ba426-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-02-e56ba426-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "REQUEST_ID\tH2\n" + content, GZIP );
     }
 
@@ -432,12 +435,12 @@ public class TsvWriterTest extends Fixtures {
 
         try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 10, BPH_12, 20 ) ) {
+            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 ) ) {
 
             writer.write( CURRENT_PROTOCOL_VERSION, bytes );
         }
 
-        assertFile( logs.resolve( "1-file-00-50137474-1-UNKNOWN.log.gz" ) )
+        assertFile( logs.resolve( "1-file-00-50137474-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
             .hasContent( "T1\tT2\n\ta\n\ta\n", GZIP );
     }
 }

@@ -143,10 +143,14 @@ public class FileSystemConfiguration {
         return conf;
     }
 
-    public Object getOrThrow( String scheme, String container, String name ) {
+    public Object get( String scheme, String container, String name ) {
         Map<String, Object> conf = get( scheme, container );
 
-        Object res = conf.get( name );
+        return conf.get( name );
+    }
+
+    public Object getOrThrow( String scheme, String container, String name ) {
+        Object res = get( scheme, container, name );
         if( res == null ) {
             throw new CloudException( "fs." + scheme + "." + name + " is required" );
         }

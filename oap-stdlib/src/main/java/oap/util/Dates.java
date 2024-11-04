@@ -103,6 +103,8 @@ public class Dates {
         .toFormatter()
         .withZoneUTC();
 
+    public static final DateTime ZERO = new DateTime( 0, DateTimeZone.UTC );
+
     /**
      * Parses a date with milliseconds.
      *
@@ -130,7 +132,7 @@ public class Dates {
     /**
      * Parses a date with the given formatter.
      *
-     * @param date the date to parse
+     * @param date      the date to parse
      * @param formatter the formatter to use
      * @return the parsed date
      */

@@ -24,6 +24,11 @@
             <artifactId>oap-storage-cloud</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>oap</groupId>
+            <artifactId>oap-storage-cloud-aws-s3</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>com.adobe.testing</groupId>
@@ -34,19 +39,15 @@
                     <groupId>org.springframework</groupId>
                     <artifactId>spring-jcl</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>regions</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>utils</artifactId>
+                </exclusion>
             </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-s3</artifactId>
-            <version>1.12.772</version>
-        </dependency>
-
-        <dependency>
-            <groupId>oap</groupId>
-            <artifactId>oap-storage-cloud-aws-s3</artifactId>
-            <version>${project.version}</version>
-            <optional>true</optional>
         </dependency>
 
         <dependency>

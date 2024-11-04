@@ -140,7 +140,7 @@ public abstract class AbstractFinisher implements Runnable {
 
     protected abstract void cleanup();
 
-    protected abstract void process( Path path, DateTime bucketTime );
+    protected abstract void process( Path shardDirectory, DateTime bucketTime );
 
     @ToString
     @AllArgsConstructor

@@ -108,8 +108,7 @@ public class FileSystemTest extends Fixtures {
 
         FileSystem fileSystem = new FileSystem( getFileSystemConfiguration() );
 
-        fileSystem.copy( "file://folder/my-file.txt.gz", "s3://" + TEST_BUCKET + "/logs/my-file.txt.gz",
-            Map.of(), Map.of( "tag1", "va1", "tag2=&+", "val2=&+" ) );
+        fileSystem.copy( "file://folder/my-file.txt.gz", "s3://" + TEST_BUCKET + "/logs/my-file.txt.gz", Map.of( "tag1", "va1", "tag2=&+", "val2=&+" ) );
 
         CloudInputStream inputStream = fileSystem.getInputStream( "s3://" + TEST_BUCKET + "/logs/my-file.txt.gz" );
 

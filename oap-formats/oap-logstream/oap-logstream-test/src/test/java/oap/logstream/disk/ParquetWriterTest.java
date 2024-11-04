@@ -76,12 +76,12 @@ public class ParquetWriterTest extends Fixtures {
         LogId logId = new LogId( "", "log", "log",
             Map.of( "p", "1" ), headers, types );
         Path logs = testDirectoryFixture.testPath( "logs" );
-        try( var writer = new ParquetLogWriter( logs, FILE_PATTERN, logId, new WriterConfiguration.ParquetConfiguration(), 1024, BPH_12, 20 ) ) {
+        try( var writer = new ParquetLogWriter( logs, FILE_PATTERN, logId, new WriterConfiguration.ParquetConfiguration(), 1, 1024, BPH_12, 20 ) ) {
             writer.write( CURRENT_PROTOCOL_VERSION, content1 );
             writer.write( CURRENT_PROTOCOL_VERSION, content2 );
         }
 
-        assertParquet( logs.resolve( "1-file-02-4cd64dae-1.parquet" ) )
+        assertParquet( logs.resolve( "1-file-02-4cd64dae-1.parquet/1/00000.parquet" ) )
             .containOnlyHeaders( "COL1", "COL2", "COL3", "DATETIME" )
             .containsExactly(
                 row( "s11", 21L, List.of( "1" ), s( 2022, 3, 11, 15, 16, 12 ) ),
@@ -90,7 +90,7 @@ public class ParquetWriterTest extends Fixtures {
                 row( "s112", 122L, List.of( "zz", "66" ), s( 2022, 3, 11, 15, 16, 15 ) )
             );
 
-        assertParquet( logs.resolve( "1-file-02-4cd64dae-1.parquet" ), "COL3", "COL2" )
+        assertParquet( logs.resolve( "1-file-02-4cd64dae-1.parquet/1/00000.parquet" ), "COL3", "COL2" )
             .containOnlyHeaders( "COL3", "COL2" )
             .contains( row( List.of( "1" ), 21L ) );
     }
@@ -115,11 +115,11 @@ public class ParquetWriterTest extends Fixtures {
         Path logs = testDirectoryFixture.testPath( "logs" );
         WriterConfiguration.ParquetConfiguration parquetConfiguration = new WriterConfiguration.ParquetConfiguration();
         parquetConfiguration.excludeFieldsIfPropertiesExists.put( "COL1", "COL1_property_name" );
-        try( var writer = new ParquetLogWriter( logs, FILE_PATTERN, logId, parquetConfiguration, 1024, BPH_12, 20 ) ) {
+        try( var writer = new ParquetLogWriter( logs, FILE_PATTERN, logId, parquetConfiguration, 1, 1024, BPH_12, 20 ) ) {
             writer.write( CURRENT_PROTOCOL_VERSION, content1 );
         }
 
-        assertParquet( logs.resolve( "1-file-02-4cd64dae-1.parquet" ) )
+        assertParquet( logs.resolve( "1-file-02-4cd64dae-1.parquet/1/00000.parquet" ) )
             .containOnlyHeaders( "COL2", "COL3", "DATETIME" )
             .containsExactly(
                 row( 21L, List.of( "1" ), s( 2022, 3, 11, 15, 16, 12 ) ),

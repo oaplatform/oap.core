@@ -1,18 +1,6 @@
 package oap.storage.cloud;
 
 import com.adobe.testing.s3mock.S3MockApplication;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.Bucket;
-import com.amazonaws.services.s3.model.GetObjectTaggingRequest;
-import com.amazonaws.services.s3.model.ObjectListing;
-import com.amazonaws.services.s3.model.ObjectTagging;
-import com.amazonaws.services.s3.model.PutObjectRequest;
-import com.amazonaws.services.s3.model.S3Object;
-import com.amazonaws.services.s3.model.S3ObjectInputStream;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
-import com.amazonaws.services.s3.model.Tag;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import oap.io.IoStreams;
@@ -22,10 +10,28 @@ import oap.testng.AbstractFixture;
 import oap.testng.TestDirectoryFixture;
 import oap.util.Lists;
 import oap.util.Maps;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.endpoints.Endpoint;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.endpoints.S3EndpointParams;
+import software.amazon.awssdk.services.s3.endpoints.internal.DefaultS3EndpointProvider;
+import software.amazon.awssdk.services.s3.model.Bucket;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetObjectTaggingRequest;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.Tag;
+import software.amazon.awssdk.services.s3.model.Tagging;
+import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -96,10 +102,10 @@ public class S3MockFixture extends AbstractFixture<S3MockFixture> {
      * !!! S3Mock bug!!!! no urldecode is used for the header
      */
     public Map<String, String> readTags( String container, String path ) {
-        final AmazonS3 s3 = getS3();
+        final S3Client s3 = getS3();
 
-        return Lists.toLinkedHashMap( s3.getObjectTagging( new GetObjectTaggingRequest( container, path ) ).getTagSet(),
-            t -> URLDecoder.decode( t.getKey(), UTF_8 ), t -> URLDecoder.decode( t.getValue(), UTF_8 ) );
+        return Lists.toLinkedHashMap( s3.getObjectTagging( GetObjectTaggingRequest.builder().bucket( container ).key( path ).build() )
+            .tagSet(), k -> URLDecoder.decode( k.key(), UTF_8 ), v -> URLDecoder.decode( v.value(), UTF_8 ) );
     }
 
     public void uploadFile( String container, String name, Path file ) {
@@ -107,52 +113,48 @@ public class S3MockFixture extends AbstractFixture<S3MockFixture> {
     }
 
     public void uploadFile( String container, String name, Path file, Map<String, String> tags ) {
-        final AmazonS3 s3 = getS3();
+        final S3Client s3 = getS3();
 
-        PutObjectRequest putObjectRequest = new PutObjectRequest( container, name, file.toFile() )
-            .withTagging( new ObjectTagging( Maps.toList( tags, Tag::new ) ) );
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder().bucket( container ).key( name )
+            .tagging( Tagging.builder().tagSet( Maps.toList( tags, ( k, v ) -> Tag.builder().key( k ).value( v ).build() ) ).build() )
+            .build();
 
-        s3.putObject( putObjectRequest );
+        s3.putObject( putObjectRequest, file );
     }
 
     public <T> T readFile( String container, String name, ContentReader<T> contentReader ) {
-        AmazonS3 s3 = getS3();
+        S3Client s3 = getS3();
 
-        try( S3Object s3Object = s3.getObject( container, name );
-             S3ObjectInputStream objectContent = s3Object.getObjectContent() ) {
-
-            return contentReader.read( IoStreams.in( objectContent, Encoding.from( name ) ) );
+        try( ResponseInputStream<GetObjectResponse> s3Object = s3.getObject( GetObjectRequest.builder().bucket( container ).key( name ).build() ) ) {
+            return contentReader.read( IoStreams.in( s3Object, Encoding.from( name ) ) );
         } catch( IOException e ) {
-            throw new UncheckedIOException( e );
+            throw new RuntimeException( e );
         }
     }
 
-    private AmazonS3 getS3() {
-        return AmazonS3ClientBuilder
-            .standard()
-            .withEndpointConfiguration( new AwsClientBuilder.EndpointConfiguration( "http://localhost:" + httpPort, "us-east-1" ) )
-            .withPathStyleAccessEnabled( true )
+    private S3Client getS3() {
+        S3EndpointParams s3EndpointParams = S3EndpointParams.builder().endpoint( "http://localhost:" + httpPort ).region( Region.AWS_GLOBAL ).build();
+        Endpoint s3Endpoint = new DefaultS3EndpointProvider().resolveEndpoint( s3EndpointParams ).join();
+
+        return S3Client.builder()
+            .endpointOverride( s3Endpoint.url() )
+            .forcePathStyle( true )
             .build();
     }
 
     public void deleteAll() {
-        AmazonS3 s3 = getS3();
+        S3Client s3 = getS3();
 
-        List<Bucket> buckets = s3.listBuckets();
-        for( Bucket bucket : buckets ) {
-            ObjectListing objectListing = null;
-            do {
-                if( objectListing != null ) {
-                    objectListing = s3.listNextBatchOfObjects( objectListing );
-                } else {
-                    objectListing = s3.listObjects( bucket.getName() );
+        ListBucketsResponse buckets = s3.listBuckets();
+        for( Bucket bucket : buckets.buckets() ) {
+            ListObjectsV2Iterable objectListing = s3.listObjectsV2Paginator( ListObjectsV2Request.builder().bucket( bucket.name() ).build() );
+
+            objectListing.stream().forEach( response -> {
+                for( S3Object s3Object : response.contents() ) {
+                    log.trace( "delete object {}/{}", bucket.name(), s3Object.key() );
+                    s3.deleteObject( DeleteObjectRequest.builder().bucket( bucket.name() ).key( s3Object.key() ).build() );
                 }
-                List<S3ObjectSummary> objectSummaries = objectListing.getObjectSummaries();
-                for( S3ObjectSummary s3ObjectSummary : objectSummaries ) {
-                    log.trace( "delete object {}/{}", bucket.getName(), s3ObjectSummary.getKey() );
-                    s3.deleteObject( bucket.getName(), s3ObjectSummary.getKey() );
-                }
-            } while( objectListing.getNextMarker() != null );
+            } );
         }
 
     }

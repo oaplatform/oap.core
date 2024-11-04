@@ -75,7 +75,6 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
     public final WriterConfiguration writerConfiguration;
     private final Path logDirectory;
     private final Timestamp timestamp;
-    private final int bufferSize;
     private final LoadingCache<LogId, AbstractWriter<? extends Closeable>> writers;
     private final ScheduledExecutorService pool;
     public String filePattern = "/<YEAR>-<MONTH>/<DAY>/<LOG_TYPE>_v<LOG_VERSION>_<CLIENT_HOST>-<YEAR>-<MONTH>-<DAY>-<HOUR>-<INTERVAL>.tsv.gz";
@@ -85,21 +84,16 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
     public long refreshPeriod = Dates.s( 10 );
     private volatile boolean closed;
 
-    public DiskLoggerBackend( Path logDirectory, Timestamp timestamp, int bufferSize ) {
-        this( logDirectory, new WriterConfiguration(), timestamp, bufferSize );
-    }
-
     @SuppressWarnings( "unchecked" )
-    public DiskLoggerBackend( Path logDirectory, WriterConfiguration writerConfiguration, Timestamp timestamp, int bufferSize ) {
-        log.info( "logDirectory '{}' timestamp {} bufferSize {} writerConfiguration {} refreshInitDelay {} refreshPeriod {}",
-            logDirectory, timestamp, FileUtils.byteCountToDisplaySize( bufferSize ), writerConfiguration,
+    public DiskLoggerBackend( Path logDirectory, WriterConfiguration writerConfiguration, Timestamp timestamp ) {
+        log.info( "logDirectory '{}' shards {} timestamp {} bufferSize {} writerConfiguration {} refreshInitDelay {} refreshPeriod {}",
+            logDirectory, writerConfiguration.shards, timestamp, FileUtils.byteCountToDisplaySize( writerConfiguration.bufferSize ), writerConfiguration,
             Dates.durationToString( refreshInitDelay ), Dates.durationToString( refreshPeriod ) );
 
 
         this.logDirectory = logDirectory;
         this.writerConfiguration = writerConfiguration;
         this.timestamp = timestamp;
-        this.bufferSize = bufferSize;
 
         this.writers = CacheBuilder.newBuilder()
             .ticker( JodaTicker.JODA_TICKER )
@@ -117,9 +111,9 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
                     LogFormat logFormat = LogFormat.parse( fp.path );
                     return switch( logFormat ) {
                         case PARQUET -> new ParquetLogWriter( logDirectory, fp.path, id,
-                            writerConfiguration.parquet, bufferSize, timestamp, maxVersions );
+                            writerConfiguration.parquet, writerConfiguration.shards, writerConfiguration.bufferSize, timestamp, maxVersions );
                         case TSV_GZ, TSV_ZSTD -> new TsvWriter( logDirectory, fp.path, id,
-                            writerConfiguration.tsv, bufferSize, timestamp, maxVersions );
+                            writerConfiguration.tsv, writerConfiguration.shards, writerConfiguration.bufferSize, timestamp, maxVersions );
                     };
                 }
             } );
@@ -227,7 +221,7 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
         return MoreObjects.toStringHelper( this )
             .add( "path", logDirectory )
             .add( "filePattern", filePattern )
-            .add( "buffer", bufferSize )
+            .add( "buffer", writerConfiguration.bufferSize )
             .add( "bucketsPerHour", timestamp.bucketsPerHour )
             .add( "writers", writers.size() )
             .toString();

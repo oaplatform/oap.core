@@ -13,6 +13,7 @@
     <logger name="java" level="WARN"/>
     <logger name="jdk" level="WARN"/>
     <logger name="io.undertow" level="WARN"/>
+    <logger name="software.amazon" level="WARN"/>
 
     <root level="TRACE">
         <appender-ref ref="STDOUT"/>

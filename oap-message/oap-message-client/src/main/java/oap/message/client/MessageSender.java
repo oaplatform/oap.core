@@ -126,7 +126,7 @@ public class MessageSender implements Closeable, AutoCloseable {
     public static Path lock( String uniqueName, Path file, long storageLockExpiration ) {
         var lockFile = Paths.get( FilenameUtils.removeExtension( file.toString() ) + ".lock" );
 
-        if( Files.createFile( lockFile ) ) return lockFile;
+        if( Files.createFile( lockFile ) != null ) return lockFile;
         if( storageLockExpiration <= 0 ) return null;
 
         log.trace( "[{}] lock found {}, expiration = {}", uniqueName, lockFile,

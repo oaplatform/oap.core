@@ -27,6 +27,7 @@ package oap.logstream;
 import lombok.extern.slf4j.Slf4j;
 import oap.http.server.nio.NioHttpServer;
 import oap.logstream.disk.DiskLoggerBackend;
+import oap.logstream.disk.WriterConfiguration;
 import oap.logstream.net.client.SocketLoggerBackend;
 import oap.logstream.net.server.SocketLoggerServer;
 import oap.message.client.MessageSender;
@@ -78,7 +79,7 @@ public class LoggerTest extends Fixtures {
         var headers2 = new String[] { "TIMESTAMP", "REQUEST_ID2" };
         var types2 = new byte[][] { new byte[] { Types.DATETIME.id }, new byte[] { Types.STRING.id } };
         var loggedHeaders2 = String.join( "\t", headers2 ) + "\n";
-        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), BPH_12, DEFAULT_BUFFER ) ) {
+        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), new WriterConfiguration( 1, DEFAULT_BUFFER ), BPH_12 ) ) {
             Logger logger = new Logger( backend );
             logger.log( "lfn1", Map.of(), "log", headers1, types1, line1 );
             logger.log( "lfn2", Map.of(), "log", headers1, types1, line1 );
@@ -112,7 +113,7 @@ public class LoggerTest extends Fixtures {
         var headers2 = new String[] { "TIMESTAMP", "REQUEST_ID2" };
         var types2 = new byte[][] { new byte[] { Types.DATETIME.id }, new byte[] { Types.STRING.id } };
 
-        try( var serverBackend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), BPH_12, DEFAULT_BUFFER );
+        try( var serverBackend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), new WriterConfiguration( 1, DEFAULT_BUFFER ), BPH_12 );
              var server = new SocketLoggerServer( serverBackend );
              var mServer = new NioHttpServer( new NioHttpServer.DefaultPort( port ) );
              var messageHttpHandler = new MessageHttpHandler( mServer, "/messages", controlStatePath, List.of( server ), -1 );

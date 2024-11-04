@@ -677,12 +677,13 @@ public final class Files {
         }
     }
 
-    public static boolean createFile( Path file ) throws oap.io.IOException {
+    public static Path createFile( Path file ) throws oap.io.IOException {
         try {
+            ensureFile( file );
             java.nio.file.Files.createFile( file );
-            return true;
+            return file;
         } catch( FileAlreadyExistsException e ) {
-            return false;
+            return null;
         } catch( IOException e ) {
             throw Throwables.propagate( e );
         }

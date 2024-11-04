@@ -1,6 +1,8 @@
 package oap.storage.cloud;
 
 import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.ToString;
@@ -25,9 +27,11 @@ import org.joda.time.DateTime;
 
 import javax.annotation.Nullable;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serial;
 import java.io.Serializable;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.URL;
 import java.nio.file.Path;
@@ -37,12 +41,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 
 import static oap.io.IoStreams.Encoding.PLAIN;
 
 @Slf4j
 public class FileSystem {
     private static final HashMap<String, Tags> tagSupport = new HashMap<>();
+    private static final HashMap<String, Class<? extends FileSystemCloudApi>> providers = new HashMap<>();
+
+    private static final Cache<String, FileSystemCloudApi> apis = CacheBuilder
+        .newBuilder()
+        .build();
 
     static {
         try {
@@ -64,12 +74,41 @@ public class FileSystem {
         } catch( Exception e ) {
             throw new CloudException( e );
         }
+
+        try {
+            List<URL> urls = Resources.urls( FileSystem.class, "/cloud-service.properties" );
+
+            for( var url : urls ) {
+                log.debug( "url {}", url );
+                try( var is = url.openStream() ) {
+                    Properties properties = new Properties();
+                    properties.load( is );
+
+                    for( String scheme : properties.stringPropertyNames() ) {
+                        providers.put( scheme, ( Class<? extends FileSystemCloudApi> ) Class.forName( properties.getProperty( scheme ) ) );
+                    }
+                }
+            }
+
+            log.info( "tags {}", Maps.toList( providers, ( k, v ) -> k + " : " + v ) );
+        } catch( Exception e ) {
+            throw new CloudException( e );
+        }
     }
 
     private final FileSystemConfiguration fileSystemConfiguration;
 
     public FileSystem( FileSystemConfiguration fileSystemConfiguration ) {
         this.fileSystemConfiguration = fileSystemConfiguration;
+    }
+
+    private FileSystemCloudApi getCloudApi( CloudURI cloudURI ) {
+        try {
+            return apis.get( cloudURI.scheme,
+                () -> providers.get( cloudURI.scheme ).getConstructor( FileSystemConfiguration.class, String.class ).newInstance( fileSystemConfiguration, cloudURI.container ) );
+        } catch( ExecutionException e ) {
+            throw new CloudException( e.getCause() );
+        }
     }
 
     /**
@@ -118,22 +157,7 @@ public class FileSystem {
     public void downloadFile( CloudURI source, Path destination ) {
         log.debug( "downloadFile {} to {}", source, destination );
 
-        BlobStoreContext context = null;
-        try {
-            context = getContext( source );
-            BlobStore blobStore = context.getBlobStore();
-            Blob blob = blobStore.getBlob( source.container, source.path );
-            if( blob == null ) {
-                throw new CloudBlobNotFoundException( source );
-            }
-            try( InputStream is = blob.getPayload().openStream() ) {
-                IoStreams.write( destination, PLAIN, is );
-            }
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        } finally {
-            Closeables.close( context );
-        }
+        getCloudApi( source ).downloadFile( source, destination );
     }
 
     /**
@@ -245,67 +269,27 @@ public class FileSystem {
     }
 
     public void copy( String source, String destination ) {
-        copy( source, destination, Map.of(), Map.of() );
+        copy( source, destination, Map.of() );
     }
 
-    public void copy( CloudURI source, CloudURI destination ) {
-        copy( source, destination, Map.of(), Map.of() );
-    }
-
-    public void copy( String source, String destination, Map<String, String> userMetadata ) {
-        copy( source, destination, userMetadata, Map.of() );
-    }
-
-    public void copy( CloudURI source, CloudURI destination, Map<String, String> userMetadata ) {
-        copy( source, destination, userMetadata, Map.of() );
-    }
-
-    public void copy( String source, String destination, Map<String, String> userMetadata, Map<String, String> tags ) {
+    public void copy( String source, String destination, Map<String, String> tags ) {
         CloudURI sourceURI = new CloudURI( source );
         CloudURI destinationURI = new CloudURI( destination );
 
-        copy( sourceURI, destinationURI, userMetadata, tags );
+        copy( sourceURI, destinationURI, tags );
     }
 
-    public void copy( CloudURI source, CloudURI destination, Map<String, String> userMetadata, Map<String, String> tags ) {
-        log.debug( "copy {} to {} (userMetadata {}, tags {})", source, destination, userMetadata, tags );
+    public void copy( CloudURI source, CloudURI destination, Map<String, String> tags ) {
+        log.debug( "copy {} to {} (tags {})", source, destination, tags );
 
+        FileSystemCloudApi sourceCloudApi = getCloudApi( source );
+        FileSystemCloudApi destinationCloudApi = getCloudApi( destination );
 
-        BlobStoreContext spurceContext = null;
-        BlobStoreContext destinationContext = null;
-        try {
-            spurceContext = getContext( source );
-            destinationContext = getContext( destination );
+        try( InputStream inputStream = sourceCloudApi.getInputStream( source ) ) {
+            destinationCloudApi.uploadFrom( destination, inputStream, tags );
 
-            BlobStore sourceBlobStore = spurceContext.getBlobStore();
-            BlobStore destinationBlobStore = destinationContext.getBlobStore();
-
-            Blob sourceBlob = sourceBlobStore.getBlob( source.container, source.path );
-
-            if( sourceBlob == null ) {
-                throw new CloudBlobNotFoundException( source );
-            }
-
-            MutableContentMetadata sourceContentMetadata = sourceBlob.getMetadata().getContentMetadata();
-
-            try( InputStream is = sourceBlob.getPayload().openStream() ) {
-                Blob destinationBlob = destinationBlobStore
-                    .blobBuilder( destination.path )
-                    .userMetadata( userMetadata )
-                    .payload( is )
-                    .contentMD5( sourceContentMetadata.getContentMD5AsHashCode() )
-                    .contentLength( sourceContentMetadata.getContentLength() )
-                    .contentType( sourceContentMetadata.getContentType() )
-                    .build();
-
-                putBlob( destinationBlobStore, destinationBlob, destination, tags );
-            }
-
-        } catch( Exception e ) {
+        } catch( IOException e ) {
             throw new CloudException( e );
-        } finally {
-            Closeables.close( spurceContext );
-            Closeables.close( destinationContext );
         }
     }
 
@@ -357,16 +341,7 @@ public class FileSystem {
     public StorageItem getMetadata( CloudURI path ) {
         log.debug( "getMetadata {}", path );
 
-        try( BlobStoreContext context = getContext( path ) ) {
-            BlobStore blobStore = context.getBlobStore();
-            Blob blob = blobStore.getBlob( path.container, path.path );
-            if( blob == null ) {
-                return null;
-            }
-            return wrapToStorageItem( blob.getMetadata() );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        }
+        return getCloudApi( path ).getMetadata( path );
     }
 
     public void deleteBlob( String path ) {
@@ -378,12 +353,7 @@ public class FileSystem {
     public void deleteBlob( CloudURI path ) {
         log.debug( "deleteBlob {}", path );
 
-        try( BlobStoreContext context = getContext( path ) ) {
-            BlobStore blobStore = context.getBlobStore();
-            blobStore.removeBlob( path.container, path.path );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        }
+        getCloudApi( path ).deleteBlob( path );
     }
 
     public boolean deleteContainerIfEmpty( String path ) {
@@ -395,12 +365,7 @@ public class FileSystem {
     public boolean deleteContainerIfEmpty( CloudURI path ) {
         log.debug( "deleteContainerIfEmpty {}", path );
 
-        try( BlobStoreContext context = getContext( path ) ) {
-            BlobStore blobStore = context.getBlobStore();
-            return blobStore.deleteContainerIfEmpty( path.container );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        }
+        return getCloudApi( path ).deleteContainerIfEmpty( path );
     }
 
     public void deleteContainer( String path ) {
@@ -412,12 +377,7 @@ public class FileSystem {
     public void deleteContainer( CloudURI path ) {
         log.debug( "deleteContainer {}", path );
 
-        try( BlobStoreContext context = getContext( path ) ) {
-            BlobStore blobStore = context.getBlobStore();
-            blobStore.deleteContainer( path.container );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        }
+        getCloudApi( path ).deleteContainer( path );
     }
 
     public boolean blobExists( String path ) {
@@ -429,12 +389,7 @@ public class FileSystem {
     public boolean blobExists( CloudURI path ) {
         log.debug( "blobExists {}", path );
 
-        try( BlobStoreContext context = getContext( path ) ) {
-            BlobStore blobStore = context.getBlobStore();
-            return blobStore.blobExists( path.container, path.path );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        }
+        return getCloudApi( path ).blobExists( path );
     }
 
     public boolean containerExists( String path ) {
@@ -446,12 +401,7 @@ public class FileSystem {
     public boolean containerExists( CloudURI path ) {
         log.debug( "containerExists {}", path );
 
-        try( BlobStoreContext context = getContext( path ) ) {
-            BlobStore blobStore = context.getBlobStore();
-            return blobStore.containerExists( path.container );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        }
+        return getCloudApi( path ).containerExists( path );
     }
 
     public boolean createContainer( String path ) {
@@ -461,12 +411,7 @@ public class FileSystem {
     public boolean createContainer( CloudURI path ) {
         log.debug( "createContainer {}", path );
 
-        try( BlobStoreContext context = getContext( path ) ) {
-            BlobStore blobStore = context.getBlobStore();
-            return blobStore.createContainerInLocation( null, path.container );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        }
+        return getCloudApi( path ).createContainer( path );
     }
 
     public CloudURI getDefaultURL( String path ) {
@@ -514,8 +459,6 @@ public class FileSystem {
         URI getUri();
 
         String getETag();
-
-        DateTime getCreationDate();
 
         DateTime getLastModified();
 

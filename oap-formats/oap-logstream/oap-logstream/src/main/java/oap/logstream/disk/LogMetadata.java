@@ -69,13 +69,13 @@ public class LogMetadata {
     }
 
     public static void rename( Path filename, Path newFile ) {
-        var from = pathFor( filename );
+        Path from = pathFor( filename );
         if( Files.exists( from ) )
             Files.rename( from, pathFor( newFile ) );
     }
 
     public static void addProperty( Path path, String name, String value ) {
-        var metadata = LogMetadata.readFor( path );
+        LogMetadata metadata = LogMetadata.readFor( path );
         metadata.setProperty( name, value );
         metadata.writeFor( path );
     }
@@ -102,10 +102,10 @@ public class LogMetadata {
 
     @JsonGetter
     public List<Byte[]> types() {
-        var ret = new ArrayList<Byte[]>();
-        for( var t : types ) {
-            var bb = new Byte[t.length];
-            for( var i = 0; i < t.length; i++ ) {
+        ArrayList<Byte[]> ret = new ArrayList<Byte[]>();
+        for( byte[] t : types ) {
+            Byte[] bb = new Byte[t.length];
+            for( int i = 0; i < t.length; i++ ) {
                 bb[i] = t[i];
             }
             ret.add( bb );
@@ -119,7 +119,7 @@ public class LogMetadata {
     }
 
     public LogMetadata withProperty( String propertyName, String value ) {
-        var newProperties = new LinkedHashMap<>( properties );
+        LinkedHashMap<String, String> newProperties = new LinkedHashMap<>( properties );
         newProperties.put( propertyName, value );
         return new LogMetadata( filePrefixPattern, type, clientHostname, newProperties, headers, types );
     }

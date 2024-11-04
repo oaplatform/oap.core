@@ -37,6 +37,7 @@ import oap.template.BinaryInputStream;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Path;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -47,19 +48,17 @@ public class TsvWriter extends AbstractWriter<CountingOutputStream> {
 
     public TsvWriter( Path logDirectory, String filePattern, LogId logId,
                       WriterConfiguration.TsvConfiguration configuration,
+                      int shards,
                       int bufferSize, Timestamp timestamp,
                       int maxVersions ) {
-        super( LogFormat.TSV_GZ, logDirectory, filePattern, logId, bufferSize, timestamp, maxVersions );
+        super( LogFormat.TSV_GZ, logDirectory, filePattern, logId, shards, bufferSize, timestamp, maxVersions );
 
         this.configuration = configuration;
-    }
-
-    public synchronized void write( ProtocolVersion protocolVersion, byte[] buffer ) throws LoggerException {
-        write( protocolVersion, buffer, 0, buffer.length );
+        this.out = new CountingOutputStream[shards];
     }
 
     @Override
-    public synchronized void write( ProtocolVersion protocolVersion, byte[] buffer, int offset, int length ) throws LoggerException {
+    protected void writeBuffer( ProtocolVersion protocolVersion, byte[] buffer, int offset, int length ) throws LoggerException {
         if( closed ) {
             throw new LoggerException( "writer is already closed!" );
         }
@@ -72,19 +71,21 @@ public class TsvWriter extends AbstractWriter<CountingOutputStream> {
     }
 
     private void writeTsvV1( ProtocolVersion protocolVersion, byte[] buffer, int offset, int length ) {
+        int currentShard = nextShard();
+
         try {
             refresh();
-            var filename = filename();
-            if( out == null )
+            Path filename = filename( currentShard );
+            if( out[currentShard] == null )
                 if( !java.nio.file.Files.exists( filename ) ) {
                     log.info( "[{}] open new file v{}", filename, fileVersion );
-                    outFilename = filename;
-                    out = new CountingOutputStream( IoStreams.out( filename, IoStreams.Encoding.from( filename ), bufferSize ) );
+                    outFilename[currentShard] = filename;
+                    out[currentShard] = new CountingOutputStream( IoStreams.out( filename, IoStreams.Encoding.from( filename ), bufferSize ) );
                     LogIdTemplate logIdTemplate = new LogIdTemplate( logId );
-                    new LogMetadata( logId ).withProperty( "VERSION", logIdTemplate.getHashWithVersion( fileVersion ) ).writeFor( filename );
+                    new LogMetadata( logId ).withProperty( "VERSION", logIdTemplate.getHashWithVersion( fileVersion ) ).writeFor( filename.getParent() );
 
-                    out.write( logId.headers[0].getBytes( UTF_8 ) );
-                    out.write( '\n' );
+                    out[currentShard].write( logId.headers[0].getBytes( UTF_8 ) );
+                    out[currentShard].write( '\n' );
                     log.debug( "[{}] write headers {}", filename, logId.headers );
                 } else {
                     log.info( "[{}] file exists v{}", filename, fileVersion );
@@ -95,14 +96,15 @@ public class TsvWriter extends AbstractWriter<CountingOutputStream> {
                 }
             log.trace( "writing {} bytes to {}", length, this );
 
-            out.write( buffer, offset, length );
+
+            out[random.nextInt( 0, shards )].write( buffer, offset, length );
 
         } catch( IOException e ) {
             log.error( e.getMessage(), e );
             try {
                 closeOutput();
             } finally {
-                outFilename = null;
+                outFilename[currentShard] = null;
                 out = null;
             }
             throw new LoggerException( e );
@@ -111,19 +113,20 @@ public class TsvWriter extends AbstractWriter<CountingOutputStream> {
     }
 
     private void writeBinaryV2( ProtocolVersion protocolVersion, byte[] buffer, int offset, int length ) {
+        int currentShard = nextShard();
         try {
             refresh();
-            var filename = filename();
-            if( out == null )
+            Path filename = filename( currentShard );
+            if( out[currentShard] == null )
                 if( !java.nio.file.Files.exists( filename ) ) {
                     log.info( "[{}] open new file v{}", filename, fileVersion );
-                    outFilename = filename;
-                    out = new CountingOutputStream( IoStreams.out( filename, IoStreams.Encoding.from( filename ), bufferSize ) );
+                    outFilename[currentShard] = filename;
+                    out[currentShard] = new CountingOutputStream( IoStreams.out( filename, IoStreams.Encoding.from( filename ), bufferSize ) );
                     LogIdTemplate logIdTemplate = new LogIdTemplate( logId );
-                    new LogMetadata( logId ).withProperty( "VERSION", logIdTemplate.getHashWithVersion( fileVersion ) ).writeFor( filename );
+                    new LogMetadata( logId ).withProperty( "VERSION", logIdTemplate.getHashWithVersion( fileVersion ) ).writeFor( filename.getParent() );
 
-                    out.write( String.join( "\t", logId.headers ).getBytes( UTF_8 ) );
-                    out.write( '\n' );
+                    out[currentShard].write( String.join( "\t", logId.headers ).getBytes( UTF_8 ) );
+                    out[currentShard].write( '\n' );
                     log.debug( "[{}] write headers {}", filename, logId.headers );
                 } else {
                     log.info( "[{}] file exists v{}", filename, fileVersion );
@@ -134,14 +137,14 @@ public class TsvWriter extends AbstractWriter<CountingOutputStream> {
                 }
             log.trace( "writing {} bytes to {}", length, this );
 
-            convertToTsv( buffer, offset, length, line -> out.write( line ) );
+            convertToTsv( buffer, offset, length, line -> out[currentShard].write( line ) );
 
         } catch( IOException e ) {
             log.error( e.getMessage(), e );
             try {
                 closeOutput();
             } finally {
-                outFilename = null;
+                outFilename[currentShard] = null;
                 out = null;
             }
             throw new LoggerException( e );
@@ -149,9 +152,9 @@ public class TsvWriter extends AbstractWriter<CountingOutputStream> {
     }
 
     private void convertToTsv( byte[] buffer, int offset, int length, IOExceptionConsumer<byte[]> cons ) throws IOException {
-        var bis = new BinaryInputStream( new ByteArrayInputStream( buffer, offset, length ) );
+        BinaryInputStream bis = new BinaryInputStream( new ByteArrayInputStream( buffer, offset, length ) );
 
-        var sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         TemplateAccumulatorTsv ta = new TemplateAccumulatorTsv( sb, configuration.dateTime32Format );
         Object obj = bis.readObject();
         while( obj != null ) {

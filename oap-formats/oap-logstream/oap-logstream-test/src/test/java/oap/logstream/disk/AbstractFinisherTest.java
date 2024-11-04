@@ -1,5 +1,6 @@
 package oap.logstream.disk;
 
+import oap.io.Files;
 import oap.logstream.Timestamp;
 import oap.testng.Fixtures;
 import oap.testng.TestDirectoryFixture;
@@ -7,10 +8,7 @@ import oap.util.Dates;
 import org.joda.time.DateTime;
 import org.testng.annotations.Test;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.util.List;
 import java.util.Map;
 
@@ -26,49 +24,50 @@ public class AbstractFinisherTest extends Fixtures {
     }
 
     @Test
-    public void testSort() throws IOException {
+    public void testSort() {
         int safeInterval = 10;
         Timestamp timestamp = Timestamp.BPH_6;
 
         Path logs = testDirectoryFixture.testPath( "logs" );
-        Files.createDirectory( logs );
+        Files.ensureDirectory( logs );
         MockFinisher finisher = new MockFinisher( logs, safeInterval, List.of( "*.txt" ), timestamp );
         finisher.priorityByType.put( "type2", 10 );
 
-        Path file11 = Files.createFile( logs.resolve( "file1-type1.txt" ) );
-        Path file12 = Files.createFile( logs.resolve( "file1-type2.txt" ) );
-        Path file21 = Files.createFile( logs.resolve( "file2-type1.txt" ) );
-        Path file22 = Files.createFile( logs.resolve( "file2-type2.txt" ) );
+        Path file110 = Files.createFile( logs.resolve( "file1-type1.txt", "1", "00000.txt" ) );
+        Path file111 = Files.createFile( logs.resolve( "file1-type1.txt", "1", "00001.txt" ) );
+        Path file120 = Files.createFile( logs.resolve( "file1-type2.txt", "1", "00000.txt" ) );
+        Path file210 = Files.createFile( logs.resolve( "file2-type1.txt", "1", "00000.txt" ) );
+        Path file220 = Files.createFile( logs.resolve( "file2-type2.txt", "1", "00000.txt" ) );
+        Path file223 = Files.createFile( logs.resolve( "file2-type2.txt", "1", "00003.txt" ) );
 
         LogMetadata type1 = new LogMetadata( "", "type1", "", Map.of(), new String[] {}, new byte[][] {} );
         LogMetadata type2 = new LogMetadata( "", "type2", "", Map.of(), new String[] {}, new byte[][] {} );
 
-        type1.writeFor( file11 );
-        type2.writeFor( file12 );
-        type1.writeFor( file21 );
-        type2.writeFor( file22 );
+        type1.writeFor( file110 );
+        type2.writeFor( file120 );
+        type1.writeFor( file210 );
+        type2.writeFor( file223 );
 
-        Files.setLastModifiedTime( file11, FileTime.fromMillis( 123453 ) );
-        Files.setLastModifiedTime( file12, FileTime.fromMillis( 123454 ) );
-        Files.setLastModifiedTime( file21, FileTime.fromMillis( 123455 ) );
-        Files.setLastModifiedTime( file22, FileTime.fromMillis( 123456 ) );
+        Files.setLastModifiedTime( file110.getParent(), 123453L );
+        Files.setLastModifiedTime( file120.getParent(), 123454L );
+        Files.setLastModifiedTime( file210.getParent(), 123455L );
+        Files.setLastModifiedTime( file220.getParent(), 123456L );
 
         Dates.setTimeFixed( 123456 + Dates.m( 60 / timestamp.bucketsPerHour ) + safeInterval + 1 );
 
 
         finisher.run();
 
-        assertThat( finisher.files )
-            .hasSize( 4 );
+        assertThat( finisher.files ).hasSize( 4 );
 
         assertThat( finisher.files.subList( 0, 2 ) ).containsAnyOf(
-            __( file12, new DateTime( 123454, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) ),
-            __( file22, new DateTime( 123456, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) )
+            __( file120.getParent(), new DateTime( 123454, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) ),
+            __( file220.getParent(), new DateTime( 123456, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) )
         );
 
         assertThat( finisher.files.subList( 2, 4 ) ).containsAnyOf(
-            __( file11, new DateTime( 123453, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) ),
-            __( file21, new DateTime( 123455, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) )
+            __( file110.getParent(), new DateTime( 123453, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) ),
+            __( file210.getParent(), new DateTime( 123455, UTC ).withMillisOfSecond( 0 ).withSecondOfMinute( 0 ) )
         );
     }
 }

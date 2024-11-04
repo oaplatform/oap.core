@@ -28,6 +28,7 @@ import oap.dictionary.DictionaryRoot;
 import oap.io.IoStreams;
 import oap.logstream.Timestamp;
 import oap.logstream.disk.DiskLoggerBackend;
+import oap.logstream.disk.WriterConfiguration;
 import oap.net.Inet;
 import oap.reflect.TypeRef;
 import oap.testng.Fixtures;
@@ -55,7 +56,7 @@ public class DynamicMapLoggerTest extends Fixtures {
     @Test
     public void log() {
         Dates.setTimeFixed( 2021, 1, 1, 1 );
-        var backend = new DiskLoggerBackend( testDirectoryFixture.testDirectory(), Timestamp.BPH_12, 1024 );
+        var backend = new DiskLoggerBackend( testDirectoryFixture.testDirectory(), new WriterConfiguration( 1, 1024 ), Timestamp.BPH_12 );
         DynamicMapLogger logger = new DynamicMapLogger( backend );
         logger.addExtractor( new TestExtractor( objectOfTestResource( DictionaryRoot.class, getClass(), "datamodel.conf" ) ) );
         logger.log( "EVENT", objectOfTestJsonResource( getClass(), new TypeRef<Map<String, Object>>() {}.clazz(), "event.json" ) );

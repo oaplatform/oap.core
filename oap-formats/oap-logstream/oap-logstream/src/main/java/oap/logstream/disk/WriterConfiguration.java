@@ -61,4 +61,12 @@ public class WriterConfiguration {
 
     public final TsvConfiguration tsv = new TsvConfiguration();
     public final ParquetConfiguration parquet = new ParquetConfiguration();
+
+    public final int shards;
+    public final int bufferSize;
+
+    public WriterConfiguration( int shards, int bufferSize ) {
+        this.shards = shards;
+        this.bufferSize = bufferSize;
+    }
 }

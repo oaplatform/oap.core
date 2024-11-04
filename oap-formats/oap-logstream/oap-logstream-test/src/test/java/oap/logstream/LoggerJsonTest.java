@@ -27,6 +27,7 @@ package oap.logstream;
 import oap.io.IoStreams.Encoding;
 import oap.json.Binder;
 import oap.logstream.disk.DiskLoggerBackend;
+import oap.logstream.disk.WriterConfiguration;
 import oap.template.BinaryUtils;
 import oap.template.Types;
 import oap.testng.Fixtures;
@@ -59,7 +60,7 @@ public class LoggerJsonTest extends Fixtures {
         var content = "{\"title\":\"response\",\"status\":false,\"values\":[1,2,3]}";
         var headers = new String[] { "test" };
         var types = new byte[][] { new byte[] { Types.STRING.id } };
-        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), BPH_12, DEFAULT_BUFFER ) ) {
+        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), new WriterConfiguration( 1, DEFAULT_BUFFER ), BPH_12 ) ) {
             Logger logger = new Logger( backend );
 
             var o = contentOfTestResource( getClass(), "simple_json.json", ofJson( SimpleJson.class ) );
