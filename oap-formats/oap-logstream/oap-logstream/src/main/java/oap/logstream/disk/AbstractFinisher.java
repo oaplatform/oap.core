@@ -29,7 +29,6 @@ public abstract class AbstractFinisher implements Runnable {
     public static final String CORRUPTED_DIRECTORY = ".corrupted";
     public final Path sourceDirectory;
     public final long safeInterval;
-    public final List<String> mask;
     public final Path corruptedDirectory;
     private final Timestamp timestamp;
     public int threads = Runtime.getRuntime().availableProcessors();
@@ -38,17 +37,16 @@ public abstract class AbstractFinisher implements Runnable {
 
 
     @SneakyThrows
-    protected AbstractFinisher( Path sourceDirectory, long safeInterval, List<String> mask, Timestamp timestamp ) {
+    protected AbstractFinisher( Path sourceDirectory, long safeInterval, Timestamp timestamp ) {
         this.sourceDirectory = sourceDirectory;
         this.safeInterval = safeInterval;
-        this.mask = mask;
         this.corruptedDirectory = sourceDirectory.resolve( CORRUPTED_DIRECTORY );
         this.timestamp = timestamp;
     }
 
     public void start() {
-        log.info( "threads = {}, sourceDirectory = {}, corruptedDirectory = {}, mask = {}, safeInterval = {}, bufferSize = {}",
-            threads, sourceDirectory, corruptedDirectory, mask, Dates.durationToString( safeInterval ), bufferSize );
+        log.info( "threads {} sourceDirectory {} corruptedDirectory {} safeInterval {} bufferSize {}",
+            threads, sourceDirectory, corruptedDirectory, Dates.durationToString( safeInterval ), bufferSize );
     }
 
     @Override
@@ -59,7 +57,7 @@ public abstract class AbstractFinisher implements Runnable {
     @SuppressWarnings( "checkstyle:ModifiedControlVariable" )
     @SneakyThrows
     public void run( boolean forceSync ) {
-        log.debug( "force {} let's start packing of {} in {}", forceSync, mask, sourceDirectory );
+        log.debug( "force {} let's start packing in {}", forceSync, sourceDirectory );
 
         log.debug( "current timestamp is {}", timestamp.toStartOfBucket( DateTime.now( UTC ) ) );
         long bucketStartTime = timestamp.currentBucketStartMillis();
@@ -73,10 +71,14 @@ public abstract class AbstractFinisher implements Runnable {
         ThreadPoolExecutor pool = Executors.newFixedBlockingThreadPool( threads, new ThreadFactoryBuilder().setNameFormat( "finisher-%d" ).build() );
 
 
-        List<Path> logs = Files.wildcard( sourceDirectory, mask );
-        logs = Lists.filter( logs, path -> {
-            if( path.startsWith( corruptedDirectory ) ) return false;
-            if( LogMetadata.isMetadata( path ) ) return false;
+        List<Path> logMetadatas = Files.wildcard( sourceDirectory, "*." + LogMetadata.EXTENSION );
+        logMetadatas = Lists.filter( logMetadatas, path -> {
+            if( path.startsWith( corruptedDirectory ) ) {
+                return false;
+            }
+            if( !LogMetadata.isMetadata( path ) ) {
+                return false;
+            }
 
             DateTime lastModifiedTime = timestamp.toStartOfBucket( new DateTime( Files.getLastModifiedTime( path ), UTC ) );
             if( !forceSync && !lastModifiedTime.isBefore( bucketStartTime ) ) {
@@ -87,7 +89,7 @@ public abstract class AbstractFinisher implements Runnable {
             return true;
         } );
 
-        List<LogInfo> logInfos = Lists.map( logs, path -> {
+        List<LogInfo> logInfos = Lists.map( logMetadatas, path -> {
             LogMetadata logMetadata = LogMetadata.readFor( path );
             long lastModifiedTime = Files.getLastModifiedTime( path );
 

@@ -9,7 +9,6 @@ import org.joda.time.DateTime;
 import org.testng.annotations.Test;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 
 import static oap.util.Pair.__;
@@ -30,7 +29,7 @@ public class AbstractFinisherTest extends Fixtures {
 
         Path logs = testDirectoryFixture.testPath( "logs" );
         Files.ensureDirectory( logs );
-        MockFinisher finisher = new MockFinisher( logs, safeInterval, List.of( "*.txt" ), timestamp );
+        MockFinisher finisher = new MockFinisher( logs, safeInterval, timestamp );
         finisher.priorityByType.put( "type2", 10 );
 
         Path file110 = Files.createFile( logs.resolve( "file1-type1.txt", "1", "00000.txt" ) );
