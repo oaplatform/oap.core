@@ -271,13 +271,13 @@ public class FileSystem {
         log.debug( "copy {} to {} (userMetadata {}, tags {})", source, destination, userMetadata, tags );
 
 
-        BlobStoreContext spurceContext = null;
+        BlobStoreContext sourceContext = null;
         BlobStoreContext destinationContext = null;
         try {
-            spurceContext = getContext( source );
+            sourceContext = getContext( source );
             destinationContext = getContext( destination );
 
-            BlobStore sourceBlobStore = spurceContext.getBlobStore();
+            BlobStore sourceBlobStore = sourceContext.getBlobStore();
             BlobStore destinationBlobStore = destinationContext.getBlobStore();
 
             Blob sourceBlob = sourceBlobStore.getBlob( source.container, source.path );
@@ -304,7 +304,7 @@ public class FileSystem {
         } catch( Exception e ) {
             throw new CloudException( e );
         } finally {
-            Closeables.close( spurceContext );
+            Closeables.close( sourceContext );
             Closeables.close( destinationContext );
         }
     }
