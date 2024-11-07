@@ -55,6 +55,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.module.afterburner.AfterburnerModule;
 import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
 import com.jasonclawson.jackson.dataformat.hocon.HoconFactory;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Timer;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import oap.io.Files;
@@ -77,6 +79,7 @@ import java.io.Writer;
 import java.lang.reflect.Type;
 import java.net.URL;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -99,6 +102,12 @@ public class Binder {
     private static final byte[] END_ARRAY = "]".getBytes();
     private static final byte[] ITEM_SEP = ",".getBytes();
     private static final Set<Module> modules;
+    private static final Timer unmarshalTimer = createTimer( "binder", "json2object" );
+    private static final Timer marshalTimer = createTimer( "binder", "object2json" );
+    private static final Timer convertTimer = createTimer( "binder", "convert" );
+    private static final Timer cloneTimer = createTimer( "binder", "clone" );
+    private static final Timer updateTimer = createTimer( "binder", "update" );
+
 
     static {
         modules = Resources
@@ -220,21 +229,29 @@ public class Binder {
     }
 
     public static void update( Object obj, Map<String, Object> values ) {
-        try {
-            var marshal = json.marshal( obj );
-            hoconWithConfigWithNullInclusion( values, false ).mapper.readerForUpdating( obj ).readValue( marshal );
-        } catch( IOException e ) {
-            throw new JsonException( e );
-        }
+        updateTimer.record( () -> {
+            try {
+                var marshal = json.marshal(obj);
+                Binder binder = hoconWithConfigWithNullInclusion(values, false);
+                binder.mapper.readerForUpdating(obj).readValue(marshal);
+            } catch (IOException e) {
+                log.trace( "values:{}", values );
+                throw new JsonException(e);
+            }
+        } );
     }
 
     public static void update( Object obj, String json ) {
-        try {
-            String marshal = Binder.json.marshal( obj );
-            hoconWithConfigWithNullInclusion( List.of( json ), false ).mapper.readerForUpdating( obj ).readValue( marshal );
-        } catch( IOException e ) {
-            throw new JsonException( e );
-        }
+        updateTimer.record( () -> {
+            try {
+                String marshal = Binder.json.marshal(obj);
+                Binder binder = hoconWithConfigWithNullInclusion(List.of(json), false);
+                binder.mapper.readerForUpdating(obj).readValue(marshal);
+            } catch (IOException e) {
+                log.trace( "json:{}", json );
+                throw new JsonException(e);
+            }
+        } );
     }
 
     private static String getLimitation( String json ) {
@@ -250,6 +267,7 @@ public class Binder {
         try {
             return mapper.getFactory().createGenerator( path.toFile(), JsonEncoding.UTF8 );
         } catch( IOException e ) {
+            log.trace( "path:{}", path );
             throw new JsonException( e );
         }
     }
@@ -258,6 +276,7 @@ public class Binder {
         try {
             return mapper.getFactory().createGenerator( new StringBuilderWriter( sb ) );
         } catch( IOException e ) {
+            log.trace( "sb:{}", sb.toString() );
             throw new JsonException( e );
         }
     }
@@ -275,11 +294,14 @@ public class Binder {
     }
 
     public String marshalWithDefaultPrettyPrinter( Object value ) {
-        try {
-            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString( value );
-        } catch( IOException e ) {
-            throw new JsonException( e );
-        }
+        return marshalTimer.record( () -> {
+            try {
+                return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+            } catch (IOException e) {
+                log.trace( "value:{}", value );
+                throw new JsonException(e);
+            }
+        } );
     }
 
     public String marshal( Object value ) {
@@ -287,13 +309,16 @@ public class Binder {
     }
 
     public String marshal( Object value, boolean prettyPrinter ) {
-        try {
-            if( prettyPrinter )
-                return mapper.writerWithDefaultPrettyPrinter().writeValueAsString( value );
-            else return mapper.writeValueAsString( value );
-        } catch( IOException e ) {
-            throw new JsonException( e );
-        }
+        return marshalTimer.record( () -> {
+            try {
+                if (prettyPrinter)
+                    return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+                else return mapper.writeValueAsString(value);
+            } catch (IOException e) {
+                log.trace( "value:{}", value );
+                throw new JsonException(e);
+            }
+        } );
     }
 
     public void marshal( Object value, StringBuilder sb ) {
@@ -313,13 +338,16 @@ public class Binder {
     }
 
     public void marshal( Object value, Writer writer, boolean prettyPrinter ) {
-        try {
-            if( prettyPrinter ) mapper.writerWithDefaultPrettyPrinter().writeValue( writer, value );
-            else
-                mapper.writeValue( writer, value );
-        } catch( IOException e ) {
-            throw new JsonException( e );
-        }
+        marshalTimer.record( () -> {
+            try {
+                if (prettyPrinter) mapper.writerWithDefaultPrettyPrinter().writeValue(writer, value);
+                else
+                    mapper.writeValue(writer, value);
+            } catch (IOException e) {
+                log.trace( "value:{}", value );
+                throw new JsonException(e);
+            }
+        } );
     }
 
     public void marshal( Object value, OutputStream outputStream ) {
@@ -327,38 +355,50 @@ public class Binder {
     }
 
     public void marshal( Object value, OutputStream outputStream, boolean prettyPrinter ) {
-        try {
-            if( prettyPrinter ) mapper.writerWithDefaultPrettyPrinter().writeValue( outputStream, value );
-            else
-                mapper.writeValue( outputStream, value );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot serialize from class: " + value.getClass().getCanonicalName(), e );
-        }
+        marshalTimer.record( () -> {
+            try {
+                if (prettyPrinter) mapper.writerWithDefaultPrettyPrinter().writeValue(outputStream, value);
+                else
+                    mapper.writeValue(outputStream, value);
+            } catch (IOException e) {
+                log.trace( "value:{}", value );
+                throw new JsonException("Cannot serialize from class: " + value.getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> String marshal( TypeRef<T> ref, Object value ) {
-        try {
-            return mapper.writerFor( toTypeReference( ref ) ).writeValueAsString( value );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot serialize from class: " + ref.type().getClass().getCanonicalName(), e );
-        }
+        return marshalTimer.record( () -> {
+            try {
+                return mapper.writerFor(toTypeReference(ref)).writeValueAsString(value);
+            } catch (IOException e) {
+                log.trace( "value:{}", value );
+                throw new JsonException("Cannot serialize from class: " + ref.type().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     @Deprecated
     public <T> String marshal( TypeReference<T> ref, Object value ) {
-        try {
-            return mapper.writerFor( ref ).writeValueAsString( value );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot serialize from class: " + value.getClass().getCanonicalName(), e );
-        }
+        return marshalTimer.record( () -> {
+            try {
+                return mapper.writerFor( ref ).writeValueAsString( value );
+            } catch( IOException e ) {
+                log.trace( "value:{}", value );
+                throw new JsonException( "Cannot serialize from class: " + value.getClass().getCanonicalName(), e );
+            }
+        } );
     }
 
     public void marshal( OutputStream os, Object value ) {
-        try {
-            mapper.writeValue( os, value );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot serialize from class: " + value.getClass().getCanonicalName(), e );
-        }
+        marshalTimer.record( () -> {
+            try {
+                mapper.writeValue( os, value );
+            } catch( IOException e ) {
+                log.trace( "value:{}", value );
+                throw new JsonException( "Cannot serialize from class: " + value.getClass().getCanonicalName(), e );
+            }
+        } );
     }
 
     public void marshal( Path path, Object value ) {
@@ -367,6 +407,7 @@ public class Binder {
         try( OutputStream os = IoStreams.out( path ) ) {
             marshal( os, value );
         } catch( IOException e ) {
+            log.trace( "value:{}", value );
             throw new JsonException( "Cannot serialize from class: " + value.getClass().getCanonicalName(), e );
         }
     }
@@ -405,62 +446,76 @@ public class Binder {
         try( var in = IoStreams.in( path ) ) {
             return unmarshal( clazz, in );
         } catch( IOException e ) {
+            log.trace( "path:{}", path );
             throw new JsonException( "Cannot deserialize to class: " + clazz.getCanonicalName(), e );
         }
     }
 
     public <T> T unmarshal( Class<T> clazz, URL url ) throws JsonException {
-        try {
-            return mapper.readValue( url, clazz );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot deserialize to class: " + clazz.getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(url, clazz);
+            } catch (IOException e) {
+                log.trace( "url:{}", url );
+                throw new JsonException("Cannot deserialize to class: " + clazz.getCanonicalName(), e);
+            }
+        } );
     }
 
-    public <T> T unmarshal( TypeRef<T> ref, String string ) {
-        try {
-            return mapper.readValue( string, toTypeReference( ref ) );
-        } catch( IOException e ) {
-            log.trace( "json: {}", string );
-            throw new JsonException( "Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e );
-        }
+    public <T> T unmarshal( TypeRef<T> ref, String json ) {
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(json, toTypeReference(ref));
+            } catch (IOException e) {
+                log.trace("json: {}", json);
+                throw new JsonException("Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
-    public <T> T unmarshal( Reflection type, String string ) throws JsonException {
-        try {
-            return mapper.readValue( string, mapper.getTypeFactory().constructType( type.getType() ) );
-        } catch( IOException e ) {
-            log.trace( "json: {}", string );
-            throw new JsonException( "Cannot deserialize to class: " + type.getType().getClass().getCanonicalName(), e );
-        }
+    public <T> T unmarshal( Reflection type, String json ) throws JsonException {
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue( json, mapper.getTypeFactory().constructType( type.getType() ) );
+            } catch( IOException e ) {
+                log.trace( "json: {}", json );
+                throw new JsonException( "Cannot deserialize to class: " + type.getType().getClass().getCanonicalName(), e );
+            }
+        } );
     }
 
     public <T> T unmarshal( Reflection type, URL url ) throws JsonException {
-        try {
-            return mapper.readValue( url, mapper.getTypeFactory().constructType( type.getType() ) );
-        } catch( IOException e ) {
-            log.trace( "url: {}", url );
-            throw new JsonException( "Cannot deserialize to class: " + type.getType().getClass().getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(url, mapper.getTypeFactory().constructType(type.getType()));
+            } catch (IOException e) {
+                log.trace("url: {}", url);
+                throw new JsonException("Cannot deserialize to class: " + type.getType().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( Reflection type, Path path ) throws JsonException {
-        try( var is = java.nio.file.Files.newInputStream( path ) ) {
-            return mapper.readValue( is, mapper.getTypeFactory().constructType( type.getType() ) );
-        } catch( IOException e ) {
-            log.trace( "path: {}", path );
-            throw new JsonException( "Cannot deserialize to class: " + type.getType().getClass().getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try (var is = java.nio.file.Files.newInputStream(path)) {
+                return mapper.readValue(is, mapper.getTypeFactory().constructType(type.getType()));
+            } catch (IOException e) {
+                log.trace("path: {}", path);
+                throw new JsonException("Cannot deserialize to class: " + type.getType().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     @Deprecated
-    public <T> T unmarshal( TypeReference<T> ref, String string ) throws JsonException {
-        try {
-            return mapper.readValue( string, ref );
-        } catch( IOException e ) {
-            log.trace( "json: " + string );
-            throw new JsonException( "Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e );
-        }
+    public <T> T unmarshal( TypeReference<T> ref, String json ) throws JsonException {
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(json, ref);
+            } catch (IOException e) {
+                log.trace("json: " + json);
+                throw new JsonException("Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> Optional<T> unmarshal( TypeRef<T> ref, Path path ) throws JsonException {
@@ -476,6 +531,7 @@ public class Binder {
         try( var in = IoStreams.in( path ) ) {
             return unmarshal( ref, in );
         } catch( IOException e ) {
+            log.trace( "path:{}", path );
             throw new JsonException( "Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e );
         }
     }
@@ -484,6 +540,7 @@ public class Binder {
         try( var in = url.openStream() ) {
             return unmarshal( ref, in );
         } catch( IOException e ) {
+            log.trace( "url:{}", url );
             throw new JsonException( "Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e );
         }
     }
@@ -493,105 +550,132 @@ public class Binder {
         try( var in = url.openStream() ) {
             return unmarshal( ref, in );
         } catch( IOException e ) {
+            log.trace( "url:{}", url );
             throw new JsonException( "Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e );
         }
     }
 
     public <T> T unmarshal( TypeRef<T> ref, InputStream is ) throws JsonException {
-        try {
-            return mapper.readValue( is, toTypeReference( ref ) );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(is, toTypeReference(ref));
+            } catch (IOException e) {
+                log.trace( "ref:{}", ref );
+                throw new JsonException("Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     @Deprecated
     public <T> T unmarshal( TypeReference<T> ref, InputStream is ) throws JsonException {
-        try {
-            return mapper.readValue( is, ref );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(is, ref);
+            } catch (IOException e) {
+                log.trace( "ref:{}", ref );
+                throw new JsonException("Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( Class<T> clazz, String json ) throws JsonException {
-        try {
-            return mapper.readValue( json, clazz );
-        } catch( Exception e ) {
-            log.trace( "Cannot deserialize [{}] into {}", json, clazz.getCanonicalName() );
-            throw new JsonException( "Cannot deserialize [" + getLimitation( json ) + "] to class: " + clazz.getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(json, clazz);
+            } catch (Exception e) {
+                log.trace("Cannot deserialize [{}] into {}", json, clazz.getCanonicalName());
+                throw new JsonException("Cannot deserialize [" + getLimitation(json) + "] to class: " + clazz.getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( Class<T> clazz, Map<String, Object> map ) throws JsonException {
-        try {
-            return mapper.convertValue( map, clazz );
-        } catch( Exception e ) {
-            log.trace( String.valueOf( map ) );
-            throw new JsonException( "Cannot deserialize [" + getLimitation( map.toString() ) + "] to class: " + clazz.getCanonicalName(), e );
-        }
+        return convertTimer.record( () -> {
+            try {
+                return mapper.convertValue(map, clazz);
+            } catch (Exception e) {
+                log.trace( "map:{}", map );
+                throw new JsonException("Cannot deserialize [" + getLimitation(map.toString()) + "] to class: " + clazz.getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( TypeRef<T> ref, byte[] bytes ) throws JsonException {
-        try {
-            return mapper.readValue( bytes, toTypeReference( ref ) );
-        } catch( Exception e ) {
-            throw new JsonException( "Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(bytes, toTypeReference(ref));
+            } catch (Exception e) {
+                log.trace( "bytes:{}", Base64.getEncoder().encodeToString(bytes) );
+                throw new JsonException("Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( TypeRef<T> ref, Object fromValue ) throws JsonException {
-        try {
-            return mapper.convertValue( fromValue, toTypeReference( ref ) );
-        } catch( Exception e ) {
-            log.trace( String.valueOf( fromValue ) );
-            throw new JsonException( "Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e );
-        }
+        return convertTimer.record( () -> {
+            try {
+                return mapper.convertValue(fromValue, toTypeReference(ref));
+            } catch (Exception e) {
+                log.trace("fromValue:{}", fromValue );
+                throw new JsonException("Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( Class<T> clazz, List<Object> map ) throws JsonException {
-        try {
-            return mapper.convertValue( map, clazz );
-        } catch( Exception e ) {
-            log.trace( String.valueOf( map ) );
-            throw new JsonException( "Cannot deserialize to class: " + clazz.getCanonicalName(), e );
-        }
+        return convertTimer.record( () -> {
+            try {
+                return mapper.convertValue(map, clazz);
+            } catch (Exception e) {
+                log.trace("map:{}", map);
+                throw new JsonException("Cannot deserialize to class: " + clazz.getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( TypeRef<T> ref, Map<String, Object> map ) throws JsonException {
-        try {
-            return mapper.convertValue( map, toTypeReference( ref ) );
-        } catch( Exception e ) {
-            log.trace( String.valueOf( map ) );
-            throw new JsonException( "Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e );
-        }
+        return convertTimer.record( () -> {
+            try {
+                return mapper.convertValue(map, toTypeReference(ref));
+            } catch (Exception e) {
+                log.trace("map:{}", map);
+                throw new JsonException("Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     @Deprecated
     public <T> T unmarshal( TypeReference<T> ref, Map<String, Object> map ) throws JsonException {
-        try {
-            return mapper.convertValue( map, ref );
-        } catch( Exception e ) {
-            log.trace( String.valueOf( map ) );
-            throw new JsonException( "Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e );
-        }
+        return convertTimer.record( () -> {
+            try {
+                return mapper.convertValue(map, ref);
+            } catch (Exception e) {
+                log.trace("map:{}", map);
+                throw new JsonException("Cannot deserialize to class: " + ref.getType().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( TypeRef<T> ref, List<Object> list ) throws JsonException {
-        try {
-            return mapper.convertValue( list, toTypeReference( ref ) );
-        } catch( Exception e ) {
-            log.trace( String.valueOf( list ) );
-            throw new JsonException( "Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e );
-        }
+        return convertTimer.record( () -> {
+            try {
+                return mapper.convertValue(list, toTypeReference(ref));
+            } catch (Exception e) {
+                log.trace("list:{}", list);
+                throw new JsonException("Cannot deserialize to class: " + ref.type().getClass().getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshal( Class<T> clazz, InputStream json ) throws JsonException {
-        try {
-            return mapper.readValue( json, clazz );
-        } catch( IOException e ) {
-            throw new JsonException( "Cannot deserialize to class: " + clazz.getCanonicalName(), e );
-        }
+        return unmarshalTimer.record( () -> {
+            try {
+                return mapper.readValue(json, clazz);
+            } catch (IOException e) {
+                log.trace("class:{}", clazz);
+                throw new JsonException("Cannot deserialize to class: " + clazz.getCanonicalName(), e);
+            }
+        } );
     }
 
     public <T> T unmarshalResource( Class<?> context, Class<T> clazz, String resourceJsonPath ) throws JsonException {
@@ -599,6 +683,7 @@ public class Binder {
             if( is == null ) throw new JsonException( "not found " + resourceJsonPath );
             return this.unmarshal( clazz, is );
         } catch( IOException e ) {
+            log.trace("class:{}", clazz);
             throw new JsonException( "Cannot deserialize to class: " + clazz.getCanonicalName(), e );
         }
     }
@@ -627,7 +712,7 @@ public class Binder {
 
     @SuppressWarnings( "unchecked" )
     public <T> T clone( T object ) {
-        return unmarshal( ( Class<T> ) object.getClass(), marshal( object ) );
+        return cloneTimer.record( () -> unmarshal( ( Class<T> ) object.getClass(), marshal( object ) ) );
     }
 
     public enum Format {
@@ -652,5 +737,13 @@ public class Binder {
             else if( path.endsWith( "yaml" ) || path.endsWith( "yml" ) ) return YAML;
             return withSystemProperties ? HOCON : HOCON_WO_SYSTEM_PROPERTIES;
         }
+    }
+
+    private static Timer createTimer( String name, String type ) {
+        return Timer.builder( name )
+                .tag( name, type )
+                .publishPercentiles( 0.5, 0.95, 0.99 ) // median and 95th & 99th percentiles
+                .publishPercentileHistogram()
+                .register( Metrics.globalRegistry );
     }
 }
