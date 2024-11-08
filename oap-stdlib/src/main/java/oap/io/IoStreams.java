@@ -206,6 +206,16 @@ public class IoStreams {
             .withSafe( safe ) );
     }
 
+    public static OutputStream out( OutputStream outputStream, Encoding encoding ) throws IOException {
+        return switch( encoding ) {
+            case GZIP -> GZIP_HADOOP_STREAMS.createOutputStream( outputStream );
+            case BZIP2 -> BZIP2_HADOOP_STREAMS.createOutputStream( outputStream );
+            case LZ4 -> LZ4_HADOOP_STREAMS.createOutputStream( outputStream );
+            case ZSTD -> ZSTD_HADOOP_STREAMS.createOutputStream( outputStream );
+            default -> outputStream;
+        };
+    }
+
     public static OutputStream out( Path path, OutOptions options ) throws oap.io.IOException {
         try {
             if( options.encoding == null ) {

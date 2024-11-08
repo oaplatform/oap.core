@@ -1,6 +1,7 @@
 package oap.storage.cloud;
 
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Map;
 
@@ -26,4 +27,6 @@ public interface FileSystemCloudApi {
     InputStream getInputStream( CloudURI path ) throws CloudException;
 
     void uploadFrom( CloudURI destination, InputStream inputStream, Map<String, String> tags ) throws CloudException;
+
+    OutputStream getOutputStream( CloudURI cloudURI, Map<String, String> tags );
 }

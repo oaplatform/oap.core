@@ -26,52 +26,53 @@ package oap.logstream;
 
 import oap.io.IoStreams.Encoding;
 import oap.json.Binder;
-import oap.logstream.disk.DiskLoggerBackend;
-import oap.logstream.disk.WriterConfiguration;
+import oap.logstream.storage.StorageLoggerBackend;
+import oap.storage.cloud.S3MockFixture;
 import oap.template.BinaryUtils;
 import oap.template.Types;
 import oap.testng.Fixtures;
-import oap.testng.TestDirectoryFixture;
 import oap.util.Dates;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 import static oap.io.content.ContentReader.ofJson;
+import static oap.io.content.ContentReader.ofString;
 import static oap.logstream.Timestamp.BPH_12;
-import static oap.logstream.disk.DiskLoggerBackend.DEFAULT_BUFFER;
 import static oap.net.Inet.HOSTNAME;
-import static oap.testng.Asserts.assertFile;
+import static oap.testng.AbstractFixture.Scope.CLASS;
 import static oap.testng.Asserts.assertString;
 import static oap.testng.Asserts.contentOfTestResource;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 public class LoggerJsonTest extends Fixtures {
-    private final TestDirectoryFixture testDirectoryFixture;
+    private final S3MockFixture s3MockFixture;
 
     public LoggerJsonTest() {
-        testDirectoryFixture = fixture( new TestDirectoryFixture() );
+        s3MockFixture = fixture( new S3MockFixture().withInitialBuckets( "test" ).withScope( CLASS ) );
     }
 
     @Test
     public void diskJSON() throws IOException {
         Dates.setTimeFixed( 2015, 10, 10, 1, 0 );
 
-        var content = "{\"title\":\"response\",\"status\":false,\"values\":[1,2,3]}";
-        var headers = new String[] { "test" };
-        var types = new byte[][] { new byte[] { Types.STRING.id } };
-        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), new WriterConfiguration( 1, DEFAULT_BUFFER ), BPH_12 ) ) {
+        String content = "{\"title\":\"response\",\"status\":false,\"values\":[1,2,3]}";
+        String[] headers = new String[] { "test" };
+        byte[][] types = new byte[][] { new byte[] { Types.STRING.id } };
+        try( StorageLoggerBackend backend = new StorageLoggerBackend( s3MockFixture.getFileSystemConfiguration( "test" ), BPH_12, List.of() ) ) {
             Logger logger = new Logger( backend );
 
-            var o = contentOfTestResource( getClass(), "simple_json.json", ofJson( SimpleJson.class ) );
+            SimpleJson o = contentOfTestResource( getClass(), "simple_json.json", ofJson( SimpleJson.class ) );
             String jsonContent = Binder.json.marshal( o );
             assertString( jsonContent ).isEqualTo( content );
 
             logger.log( "open_rtb_json", Map.of(), "request_response", headers, types, BinaryUtils.line( jsonContent ) );
         }
 
-        assertFile( testDirectoryFixture.testPath( "logs/open_rtb_json/2015-10/10/request_response_v3b5d9e1b-1_" + HOSTNAME + "-2015-10-10-01-00.tsv.gz" ) )
-            .hasContent( String.join( "\t", headers ) + '\n' + content + "\n", Encoding.GZIP );
+        assertThat( s3MockFixture.readFile( "test", "open_rtb_json/2015-10/10/request_response_v3b5d9e1b-1_" + HOSTNAME + "-2015-10-10-01-00.tsv.gz", ofString(), Encoding.from( "open_rtb_json/2015-10/10/request_response_v3b5d9e1b-1_" + HOSTNAME + "-2015-10-10-01-00.tsv.gz" ) ) )
+            .isEqualTo( String.join( "\t", headers ) + '\n' + content + "\n", Encoding.GZIP );
     }
 
     public static class SimpleJson {

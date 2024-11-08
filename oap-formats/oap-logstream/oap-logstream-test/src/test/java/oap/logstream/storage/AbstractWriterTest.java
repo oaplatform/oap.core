@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package oap.logstream.disk;
+package oap.logstream.storage;
 
 import oap.logstream.LogId;
 import oap.logstream.Timestamp;
@@ -37,10 +37,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class AbstractWriterTest {
     @Test
     public void testFileName() {
-        var h1Headers = new String[] { "h1" };
-        var strTypes = new byte[][] { new byte[] { Types.STRING.id } };
+        String[] h1Headers = new String[] { "h1" };
+        byte[][] strTypes = new byte[][] { new byte[] { Types.STRING.id } };
 
-        var lid1 = new LogId( "ln", "lt", "chn", Map.of(), h1Headers, strTypes );
+        LogId lid1 = new LogId( "ln", "lt", "chn", Map.of(), h1Headers, strTypes );
 
         Dates.setTimeFixed( 2023, 1, 23, 21, 6, 0 );
 
@@ -58,12 +58,12 @@ public class AbstractWriterTest {
 
     @Test
     public void testFileNameConditional() {
-        var h1Headers = new String[] { "h1" };
-        var strTypes = new byte[][] { new byte[] { Types.STRING.id } };
+        String[] h1Headers = new String[] { "h1" };
+        byte[][] strTypes = new byte[][] { new byte[] { Types.STRING.id } };
 
         Dates.setTimeFixed( 2023, 1, 23, 21, 6, 0 );
 
-        var lid1 = new LogId( "ln", "lt", "chn", Map.of(), h1Headers, strTypes );
+        LogId lid1 = new LogId( "ln", "lt", "chn", Map.of(), h1Headers, strTypes );
         assertThat( AbstractWriter.currentPattern( LogFormat.TSV_GZ, "<if((ORGANIZATION)&&(ACCOUNT))><ORGANIZATION>/<ACCOUNT>/<endif><INTERVAL>-<LOG_VERSION>.<LOG_FORMAT>", lid1, Timestamp.BPH_12, 1, Dates.nowUtc() ) )
             .isEqualTo( "ln/01-85594397-1.tsv.gz" );
 

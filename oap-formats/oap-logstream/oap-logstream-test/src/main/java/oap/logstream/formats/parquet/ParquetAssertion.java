@@ -160,6 +160,12 @@ public class ParquetAssertion extends AbstractAssert<ParquetAssertion, ParquetAs
         return this;
     }
 
+    public ParquetAssertion hasRows( int rows ) {
+        assertThat( actual.data ).hasSize( rows );
+
+        return this;
+    }
+
     @ToString
     @EqualsAndHashCode
     public static class Row {

@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package oap.logstream.disk;
+package oap.logstream.storage;
 
 import lombok.extern.slf4j.Slf4j;
 import oap.logstream.InvalidProtocolVersionException;
@@ -33,15 +33,15 @@ import oap.logstream.LoggerException;
 import oap.logstream.Timestamp;
 import oap.logstream.formats.parquet.ParquetSimpleGroup;
 import oap.logstream.formats.parquet.ParquetWriteBuilder;
+import oap.storage.cloud.CloudURI;
+import oap.storage.cloud.FileSystemConfiguration;
 import oap.template.BinaryInputStream;
 import oap.template.BinaryUtils;
 import oap.util.Lists;
-import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.Preconditions;
 import org.apache.parquet.example.data.Group;
-import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.example.GroupWriteSupport;
 import org.apache.parquet.hadoop.util.HadoopOutputFile;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
@@ -52,9 +52,6 @@ import org.joda.time.DateTime;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -93,10 +90,11 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
     private final WriterConfiguration.ParquetConfiguration configuration;
     private final LinkedHashSet<String> excludeFields = new LinkedHashSet<>();
 
-    public ParquetLogWriter( Path logDirectory, String filePattern, LogId logId, WriterConfiguration.ParquetConfiguration configuration,
-                             int shards, int bufferSize, Timestamp timestamp, int maxVersions )
+    public ParquetLogWriter( FileSystemConfiguration fileSystemConfiguration, String filePattern, LogId logId,
+                             WriterConfiguration.ParquetConfiguration configuration,
+                             Timestamp timestamp, int maxVersions, List<EndFileListener> listeners )
         throws IllegalArgumentException {
-        super( LogFormat.PARQUET, logDirectory, filePattern, logId, shards, bufferSize, timestamp, maxVersions );
+        super( LogFormat.PARQUET, fileSystemConfiguration, filePattern, logId, timestamp, maxVersions, listeners );
         this.configuration = configuration;
 
 
@@ -110,16 +108,16 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
 
         Types.MessageTypeBuilder messageTypeBuilder = Types.buildMessage();
 
-        for( var i = 0; i < logId.headers.length; i++ ) {
-            var header = logId.headers[i];
-            var type = logId.types[i];
+        for( int i = 0; i < logId.headers.length; i++ ) {
+            String header = logId.headers[i];
+            byte[] type = logId.types[i];
 
             if( excludeFields.contains( header ) ) {
                 continue;
             }
 
             Types.Builder<?, ?> fieldType = null;
-            for( var idx = type.length - 1; idx >= 0; idx-- ) {
+            for( int idx = type.length - 1; idx >= 0; idx-- ) {
                 Function<List<Types.Builder<?, ?>>, Types.Builder<?, ?>> builderFunction = types.get( type[idx] );
                 Preconditions.checkArgument( builderFunction != null, "" );
                 fieldType = builderFunction.apply( fieldType != null ? List.of( fieldType ) : List.of() );
@@ -129,18 +127,16 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
             messageTypeBuilder.addField( ( Type ) fieldType.named( header ) );
         }
 
-        log.debug( "writer path '{}' logType '{}' headers {} filePrefixPattern '{}' properties {} configuration '{}' bufferSize '{}'",
+        log.debug( "writer path '{}' logType '{}' headers {} filePrefixPattern '{}' properties {} configuration '{}'",
             currentPattern(), logId.logType, Arrays.asList( logId.headers ), logId.filePrefixPattern,
-            logId.properties, configuration, bufferSize
+            logId.properties, configuration
         );
 
         messageType = messageTypeBuilder.named( "logger" );
-
-        out = new ParquetWriter[shards];
     }
 
     private static void addValue( int col, Object obj, byte[] colType, int typeIdx, Group group ) {
-        var type = colType[typeIdx];
+        byte type = colType[typeIdx];
         if( type == oap.template.Types.BOOLEAN.id ) {
             group.add( col, ( boolean ) obj );
         } else if( type == oap.template.Types.BYTE.id ) {
@@ -160,8 +156,8 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
         } else if( type == oap.template.Types.DATETIME.id ) {
             group.add( col, ( ( DateTime ) obj ).getMillis() / 1000 );
         } else if( type == oap.template.Types.LIST.id ) {
-            var listGroup = group.addGroup( col );
-            for( var item : ( List<?> ) obj ) {
+            Group listGroup = group.addGroup( col );
+            for( Object item : ( List<?> ) obj ) {
                 addValue( 0, item, colType, typeIdx + 1, listGroup.addGroup( "list" ) );
             }
         } else {
@@ -170,7 +166,7 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
     }
 
     @Override
-    protected void writeBuffer( ProtocolVersion protocolVersion, byte[] buffer, int offset, int length ) throws LoggerException {
+    public synchronized void write( ProtocolVersion protocolVersion, byte[] buffer, int offset, int length ) throws LoggerException {
         if( protocolVersion.version < ProtocolVersion.BINARY_V2.version ) {
             throw new InvalidProtocolVersionException( "parquet", protocolVersion.version );
         }
@@ -178,48 +174,65 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
         if( closed ) {
             throw new LoggerException( "writer is already closed!" );
         }
-        int currentShard = nextShard();
-        Path filename = filename( currentShard );
         try {
             refresh();
-            if( out[currentShard] == null )
-                if( !java.nio.file.Files.exists( filename ) ) {
-                    log.info( "[{}] open new file v{}", filename, fileVersion );
-                    outFilename[currentShard] = filename;
+            CloudURI filename = filename();
+            synchronized( this ) {
+                if( out == null ) {
+                    if( !fileSystem.blobExists( filename ) ) {
+                        log.info( "[{}] open new file v{}", filename, fileVersion );
+                        outFilename = filename;
 
-                    Configuration conf = new Configuration();
-                    GroupWriteSupport.setSchema( messageType, conf );
+                        Configuration conf = new Configuration();
+                        conf.set( "fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem" );
+                        Object endoint = fileSystem.fileSystemConfiguration.get( "s3", null, "jclouds.endpoint" );
+                        if( endoint != null ) {
+                            conf.set( "fs.s3a.path.style.access", "true" );
+                            conf.set( "fs.s3a.endpoint", endoint.toString() );
+                        }
+                        Object identity = fileSystem.fileSystemConfiguration.get( "s3", null, "jclouds.identity" );
+                        if( identity != null ) {
+                            conf.set( "fs.s3a.access.key", identity.toString() );
+                        }
+                        Object credential = fileSystem.fileSystemConfiguration.get( "s3", null, "jclouds.credential" );
+                        if( credential != null ) {
+                            conf.set( "fs.s3a.secret.key", credential.toString() );
+                        }
 
-                    out[currentShard] = new ParquetWriteBuilder( HadoopOutputFile.fromPath( new org.apache.hadoop.fs.Path( filename.toString() ), conf ) )
-                        .withConf( conf )
-                        .withCompressionCodec( configuration.compressionCodecName )
-                        .build();
+                        GroupWriteSupport.setSchema( messageType, conf );
 
-                    LogIdTemplate logIdTemplate = new LogIdTemplate( logId );
-                    new LogMetadata( logId ).withProperty( "VERSION", logIdTemplate.getHashWithVersion( fileVersion ) ).writeFor( filename.getParent() );
-                } else {
-                    log.info( "[{}] file exists v{}", filename, fileVersion );
-                    fileVersion += 1;
-                    if( fileVersion > maxVersions ) throw new IllegalStateException( "version > " + maxVersions );
-                    write( protocolVersion, buffer, offset, length );
-                    return;
+                        out = new ParquetWriteBuilder( HadoopOutputFile.fromPath( new org.apache.hadoop.fs.Path( filename.toString() ), conf ) )
+                            .withConf( conf )
+                            .withCompressionCodec( configuration.compressionCodecName )
+                            .build();
+
+                        LogIdTemplate logIdTemplate = new LogIdTemplate( logId );
+                        new LogMetadata( logId ).withProperty( "VERSION", logIdTemplate.getHashWithVersion( fileVersion ) ).writeFor( fileSystem, filename );
+                    } else {
+                        log.info( "[{}] file exists v{}", filename, fileVersion );
+                        fileVersion += 1;
+                        if( fileVersion > maxVersions ) throw new IllegalStateException( "version > " + maxVersions );
+                        write( protocolVersion, buffer, offset, length );
+                        return;
+                    }
                 }
-            log.trace( "writing {} bytes to {}", length, this );
-            convertToParquet( currentShard, buffer, offset, length, logId.types, logId.headers );
+                log.trace( "writing {} bytes to {}", length, this );
+                convertToParquet( buffer, offset, length, logId.types, logId.headers );
+            }
         } catch( IOException e ) {
             log.error( e.getMessage(), e );
             try {
                 closeOutput();
             } finally {
-                outFilename[currentShard] = null;
+                outFilename = null;
                 out = null;
             }
             throw new LoggerException( e );
         }
     }
 
-    private void convertToParquet( int currentShard, byte[] buffer, int offset, int length, byte[][] types, String[] headers ) throws IOException {
-        var bis = new BinaryInputStream( new ByteArrayInputStream( buffer, offset, length ) );
+    private void convertToParquet( byte[] buffer, int offset, int length, byte[][] types, String[] headers ) throws IOException {
+        BinaryInputStream bis = new BinaryInputStream( new ByteArrayInputStream( buffer, offset, length ) );
         int col = 0;
         ParquetSimpleGroup group = new ParquetSimpleGroup( messageType );
         Object obj = bis.readObject();
@@ -236,7 +249,7 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
                             Lists.map( List.of( ArrayUtils.toObject( types[col] ) ), oap.template.Types::valueOf ),
                             parquetCol );
 
-                        var data = BinaryUtils.read( buffer, offset, length );
+                        List<List<Object>> data = BinaryUtils.read( buffer, offset, length );
                         log.error( "object data {}", data );
 
                         throw e;
@@ -246,34 +259,10 @@ public class ParquetLogWriter extends AbstractWriter<org.apache.parquet.hadoop.P
                 obj = bis.readObject();
                 col++;
             }
-            out[currentShard].write( group );
+            out.write( group );
             col = 0;
             group = new ParquetSimpleGroup( messageType );
             obj = bis.readObject();
-        }
-    }
-
-    @Override
-    protected void closeOutput() throws LoggerException {
-        for( int i = 0; i < shards; i++ ) {
-            Path parquetFile = outFilename[i];
-
-            try {
-                super.closeOutput();
-            } finally {
-                if( parquetFile != null ) {
-                    var name = FilenameUtils.getName( parquetFile.toString() );
-                    var parent = FilenameUtils.getFullPathNoEndSeparator( parquetFile.toString() );
-                    java.nio.file.Path crcPath = Paths.get( parent + "/." + name + ".crc" );
-
-                    if( Files.exists( crcPath ) )
-                        try {
-                            Files.delete( crcPath );
-                        } catch( IOException e ) {
-                            log.error( e.getMessage(), e );
-                        }
-                }
-            }
         }
     }
 }

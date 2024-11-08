@@ -40,7 +40,7 @@ import java.util.Map;
  * The LogIdTemplate class is used to render templates associated with the LogId object.
  *
  * @see LogId
- * @see oap.logstream.disk.AbstractWriter
+ * @see oap.logstream.storage.AbstractWriter
  */
 public class LogIdTemplate {
     private final LogId logId;

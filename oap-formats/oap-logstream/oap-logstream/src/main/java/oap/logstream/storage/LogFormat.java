@@ -22,40 +22,30 @@
  * SOFTWARE.
  */
 
-package oap.logstream.disk;
+package oap.logstream.storage;
 
-import oap.template.TemplateAccumulatorString;
-import oap.tsv.Printer;
+import oap.io.IoStreams.Encoding;
 
-public class TemplateAccumulatorTsv extends TemplateAccumulatorString {
+import javax.annotation.Nonnull;
 
-    public TemplateAccumulatorTsv( StringBuilder sb ) {
-        super( sb );
+public enum LogFormat {
+    TSV_GZ( "tsv" + Encoding.GZIP.extension ),
+    TSV_ZSTD( "tsv" + Encoding.ZSTD.extension ),
+    PARQUET( "parquet" );
+
+    public final String extension;
+
+    LogFormat( String extension ) {
+        this.extension = extension;
     }
 
-    public TemplateAccumulatorTsv() {
-    }
-
-    public TemplateAccumulatorTsv( String dateTimeFormat ) {
-        super( dateTimeFormat );
-    }
-
-    public TemplateAccumulatorTsv( StringBuilder sb, String dateTimeFormat ) {
-        super( sb, dateTimeFormat );
-    }
-
-    @Override
-    public void acceptText( String text ) {
-        super.acceptText( Printer.escape( text, false ) );
-    }
-
-    @Override
-    public void accept( String text ) {
-        acceptText( text );
-    }
-
-    @Override
-    public TemplateAccumulatorTsv newInstance( StringBuilder mutable ) {
-        return new TemplateAccumulatorTsv( mutable );
+    @Nonnull
+    public static LogFormat parse( String filePattern ) {
+        for( var logFormat : values() ) {
+            if( filePattern.endsWith( logFormat.extension ) ) {
+                return logFormat;
+            }
+        }
+        throw new IllegalArgumentException( "Unsupported log format " + filePattern );
     }
 }

@@ -7,8 +7,6 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
-import oap.io.Closeables;
-import oap.io.IoStreams;
 import oap.io.Resources;
 import oap.util.Maps;
 import org.apache.commons.io.FilenameUtils;
@@ -21,7 +19,6 @@ import org.jclouds.blobstore.domain.PageSet;
 import org.jclouds.blobstore.domain.StorageMetadata;
 import org.jclouds.blobstore.domain.internal.PageSetImpl;
 import org.jclouds.blobstore.options.ListContainerOptions;
-import org.jclouds.io.MutableContentMetadata;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.joda.time.DateTime;
 
@@ -29,9 +26,9 @@ import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.Serial;
 import java.io.Serializable;
-import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.URL;
 import java.nio.file.Path;
@@ -42,8 +39,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
-
-import static oap.io.IoStreams.Encoding.PLAIN;
 
 @Slf4j
 public class FileSystem {
@@ -96,7 +91,7 @@ public class FileSystem {
         }
     }
 
-    private final FileSystemConfiguration fileSystemConfiguration;
+    public final FileSystemConfiguration fileSystemConfiguration;
 
     public FileSystem( FileSystemConfiguration fileSystemConfiguration ) {
         this.fileSystemConfiguration = fileSystemConfiguration;
@@ -127,27 +122,14 @@ public class FileSystem {
         }
     }
 
-    public CloudInputStream getInputStream( String path ) {
-        return getInputStream( new CloudURI( path ) );
-    }
-
-    public CloudInputStream getInputStream( CloudURI path ) {
+    public InputStream getInputStream( CloudURI path ) {
         log.debug( "getInputStream {}", path );
 
-        BlobStoreContext context = null;
-        try {
-            context = getContext( path );
-            BlobStore blobStore = context.getBlobStore();
-            Blob blob = blobStore.getBlob( path.container, path.path );
-            if( blob == null ) {
-                throw new CloudBlobNotFoundException( path );
-            }
-            return new CloudInputStream( blob.getPayload().openStream(), blob.getMetadata().getUserMetadata(), context );
-        } catch( Exception e ) {
-            throw new CloudException( e );
-        } finally {
-            Closeables.close( context );
-        }
+        return getCloudApi( path ).getInputStream( path );
+    }
+
+    public OutputStream getOutputStream( CloudURI cloudURI, Map<String, String> tags ) throws CloudException {
+        return getCloudApi( cloudURI ).getOutputStream( cloudURI, tags );
     }
 
     public void downloadFile( String source, Path destination ) {

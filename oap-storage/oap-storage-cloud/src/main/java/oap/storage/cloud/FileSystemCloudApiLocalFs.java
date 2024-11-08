@@ -5,14 +5,13 @@ import oap.io.IoStreams;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Map;
 
 public class FileSystemCloudApiLocalFs implements FileSystemCloudApi {
@@ -133,6 +132,15 @@ public class FileSystemCloudApiLocalFs implements FileSystemCloudApi {
         try {
             IoStreams.write( getPath( destination ), IoStreams.Encoding.PLAIN, inputStream );
         } catch( UncheckedIOException e ) {
+            throw new CloudException( e );
+        }
+    }
+
+    @Override
+    public OutputStream getOutputStream( CloudURI path, Map<String, String> tags ) throws CloudException {
+        try {
+            return Files.newOutputStream( getPath( path ) );
+        } catch( IOException e ) {
             throw new CloudException( e );
         }
     }

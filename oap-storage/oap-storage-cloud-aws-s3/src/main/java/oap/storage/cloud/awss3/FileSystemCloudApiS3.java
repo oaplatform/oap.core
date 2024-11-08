@@ -1,12 +1,17 @@
 package oap.storage.cloud.awss3;
 
+import io.micrometer.core.instrument.util.NamedThreadFactory;
 import lombok.extern.slf4j.Slf4j;
+import oap.concurrent.Executors;
+import oap.concurrent.ThreadPoolExecutor;
+import oap.io.Closeables;
 import oap.storage.cloud.CloudException;
 import oap.storage.cloud.CloudURI;
 import oap.storage.cloud.FileSystem;
 import oap.storage.cloud.FileSystemCloudApi;
 import oap.storage.cloud.FileSystemConfiguration;
 import oap.util.Maps;
+import oap.util.Throwables;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -44,12 +49,10 @@ import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.Tag;
 import software.amazon.awssdk.services.s3.model.Tagging;
 import software.amazon.awssdk.transfer.s3.S3TransferManager;
-import software.amazon.awssdk.transfer.s3.internal.TransferManagerConfiguration;
 import software.amazon.awssdk.transfer.s3.model.CompletedCopy;
 import software.amazon.awssdk.transfer.s3.model.CompletedFileDownload;
 import software.amazon.awssdk.transfer.s3.model.CompletedUpload;
@@ -60,7 +63,11 @@ import software.amazon.awssdk.transfer.s3.model.FileDownload;
 import software.amazon.awssdk.transfer.s3.model.Upload;
 import software.amazon.awssdk.transfer.s3.model.UploadRequest;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -68,7 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 @Slf4j
 public class FileSystemCloudApiS3 implements FileSystemCloudApi {
@@ -338,7 +345,106 @@ public class FileSystemCloudApiS3 implements FileSystemCloudApi {
         }
     }
 
+    @Override
+    public OutputStream getOutputStream( CloudURI cloudURI, Map<String, String> tags ) {
+        S3TransferManager s3TransferManager = S3TransferManager.builder().s3Client( s3Client ).build();
+        ThreadPoolExecutor threadPoolExecutor = null;
+        CompletableFuture<CompletedUpload> completedUploadCompletableFuture = null;
+
+        try {
+            BlockingInputStreamAsyncRequestBody body = AsyncRequestBody.forBlockingInputStream( null );
+
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket( cloudURI.container ).key( cloudURI.path )
+                .tagging( getTagging( tags ) )
+                .build();
+            UploadRequest uploadRequest = UploadRequest.builder()
+                .putObjectRequest( putObjectRequest )
+                .requestBody( body )
+                .build();
+
+            Upload upload = s3TransferManager.upload( uploadRequest );
+            completedUploadCompletableFuture = upload.completionFuture();
+
+            PipedOutputStream pipedOutputStream = new PipedOutputStream();
+            PipedInputStream pingedInputStream = new PipedInputStream( pipedOutputStream );
+
+            threadPoolExecutor = Executors.newFixedBlockingThreadPool( 1, new NamedThreadFactory( "fs-write-" + cloudURI ) );
+            Future<?> future;
+            future = threadPoolExecutor.submit( () -> {
+                body.writeInputStream( pingedInputStream );
+            } );
+
+            return new CloudOutputStream( s3TransferManager, completedUploadCompletableFuture, pipedOutputStream, future, threadPoolExecutor );
+        } catch( Exception e ) {
+            log.error( e.getMessage(), e );
+
+            if( completedUploadCompletableFuture != null ) {
+                completedUploadCompletableFuture.completeExceptionally( e );
+            }
+            Closeables.close( threadPoolExecutor );
+            Closeables.close( s3TransferManager );
+            throw Throwables.propagate( e );
+        }
+    }
+
     private static Tagging getTagging( Map<String, String> tags ) {
         return Tagging.builder().tagSet( Maps.toList( tags, ( k, v ) -> Tag.builder().key( k ).value( v ).build() ) ).build();
+    }
+
+    public static class CloudOutputStream extends OutputStream {
+        private final S3TransferManager s3TransferManager;
+        private final CompletableFuture<CompletedUpload> completedUploadCompletableFuture;
+        private final PipedOutputStream pipedOutputStream;
+        private final Future<?> future;
+        private final ThreadPoolExecutor threadPoolExecutor;
+
+        public CloudOutputStream( S3TransferManager s3TransferManager,
+                                  CompletableFuture<CompletedUpload> completedUploadCompletableFuture,
+                                  PipedOutputStream pipedOutputStream, Future<?> future, ThreadPoolExecutor threadPoolExecutor ) {
+            this.s3TransferManager = s3TransferManager;
+            this.completedUploadCompletableFuture = completedUploadCompletableFuture;
+            this.pipedOutputStream = pipedOutputStream;
+            this.future = future;
+            this.threadPoolExecutor = threadPoolExecutor;
+        }
+
+        @Override
+        public void write( int b ) throws IOException {
+            pipedOutputStream.write( b );
+        }
+
+        @Override
+        public void write( byte[] b ) throws IOException {
+            pipedOutputStream.write( b );
+        }
+
+        @Override
+        public void write( byte[] b, int off, int len ) throws IOException {
+            pipedOutputStream.write( b, off, len );
+        }
+
+        @Override
+        public void flush() throws IOException {
+            pipedOutputStream.flush();
+        }
+
+        @Override
+        public void close() {
+            Closeables.close( pipedOutputStream );
+
+            try {
+                future.get();
+            } catch( InterruptedException | ExecutionException e ) {
+                log.error( e.getMessage(), e );
+            }
+            try {
+                completedUploadCompletableFuture.get();
+            } catch( InterruptedException | ExecutionException e ) {
+                log.error( e.getMessage(), e );
+            }
+            Closeables.close( threadPoolExecutor );
+            Closeables.close( s3TransferManager );
+        }
     }
 }

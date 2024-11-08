@@ -22,15 +22,15 @@
  * SOFTWARE.
  */
 
-package oap.logstream.disk;
+package oap.logstream.storage;
 
-import oap.io.IoStreams;
+import oap.io.IoStreams.Encoding;
 import oap.logstream.Logger;
 import oap.logstream.Timestamp;
+import oap.storage.cloud.S3MockFixture;
 import oap.template.BinaryUtils;
 import oap.template.Types;
 import oap.testng.Fixtures;
-import oap.testng.TestDirectoryFixture;
 import oap.util.Dates;
 import org.testng.annotations.Test;
 
@@ -38,47 +38,33 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import static oap.io.content.ContentReader.ofBytes;
+import static oap.io.content.ContentReader.ofString;
 import static oap.logstream.Timestamp.BPH_12;
-import static oap.logstream.disk.DiskLoggerBackend.DEFAULT_BUFFER;
 import static oap.logstream.formats.parquet.ParquetAssertion.assertParquet;
 import static oap.logstream.formats.parquet.ParquetAssertion.row;
 import static oap.net.Inet.HOSTNAME;
-import static oap.testng.Asserts.assertFile;
+import static oap.testng.AbstractFixture.Scope.CLASS;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.testng.Assert.assertFalse;
-import static org.testng.Assert.assertTrue;
 
-public class DiskLoggerBackendTest extends Fixtures {
-    private final TestDirectoryFixture testDirectoryFixture;
+public class StorageLoggerBackendTest extends Fixtures {
+    private final S3MockFixture s3MockFixture;
 
-    public DiskLoggerBackendTest() {
-        testDirectoryFixture = fixture( new TestDirectoryFixture() );
-    }
-
-    @Test
-    public void spaceAvailable() {
-        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), new WriterConfiguration( 1, 4000 ), Timestamp.BPH_12 ) ) {
-            backend.start();
-
-            assertTrue( backend.isLoggingAvailable() );
-            backend.requiredFreeSpace *= 1000;
-            assertFalse( backend.isLoggingAvailable() );
-            backend.requiredFreeSpace /= 1000;
-            assertTrue( backend.isLoggingAvailable() );
-        }
+    public StorageLoggerBackendTest() {
+        s3MockFixture = fixture( new S3MockFixture().withInitialBuckets( "test" ).withScope( CLASS ) );
     }
 
     @Test
     public void testPatternByType() throws IOException {
         Dates.setTimeFixed( 2015, 10, 10, 1, 16 );
-        var headers = new String[] { "REQUEST_ID", "REQUEST_ID2" };
-        var types = new byte[][] { new byte[] { Types.STRING.id }, new byte[] { Types.STRING.id } };
-        var lines = BinaryUtils.lines( List.of( List.of( "12345678", "rrrr5678" ), List.of( "1", "2" ) ) );
+        String[] headers = new String[] { "REQUEST_ID", "REQUEST_ID2" };
+        byte[][] types = new byte[][] { new byte[] { Types.STRING.id }, new byte[] { Types.STRING.id } };
+        byte[] lines = BinaryUtils.lines( List.of( List.of( "12345678", "rrrr5678" ), List.of( "1", "2" ) ) );
 
-        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), new WriterConfiguration( 1, 4000 ), Timestamp.BPH_12 ) ) {
+        try( StorageLoggerBackend backend = new StorageLoggerBackend( s3MockFixture.getFileSystemConfiguration( "test" ), Timestamp.BPH_12, List.of() ) ) {
             backend.filePattern = "<LOG_TYPE>_<LOG_VERSION>_<INTERVAL>.tsv.gz";
             backend.filePatternByType.put( "LOG_TYPE_WITH_DIFFERENT_FILE_PATTERN",
-                new DiskLoggerBackend.FilePatternConfiguration( "<LOG_TYPE>_<LOG_VERSION>_<MINUTE>.parquet" ) );
+                new StorageLoggerBackend.FilePatternConfiguration( "<LOG_TYPE>_<LOG_VERSION>_<MINUTE>.parquet" ) );
             backend.start();
 
             Logger logger = new Logger( backend );
@@ -88,13 +74,13 @@ public class DiskLoggerBackendTest extends Fixtures {
 
             backend.refresh( true );
 
-            assertFile( testDirectoryFixture.testPath( "logs/lfn1/log_type_with_default_file_pattern_59193f7e-1_03.tsv.gz/1/00000.tsv.gz" ) )
-                .hasContent( """
+            assertThat( s3MockFixture.readFile( "test", "lfn1/log_type_with_default_file_pattern_59193f7e-1_03.tsv.gz", ofString(), Encoding.GZIP ) )
+                .isEqualTo( """
                     REQUEST_ID\tREQUEST_ID2
                     12345678\trrrr5678
                     1\t2
-                    """, IoStreams.Encoding.GZIP );
-            assertParquet( testDirectoryFixture.testPath( "logs/lfn1/log_type_with_different_file_pattern_59193f7e-1_16.parquet/1/00000.parquet" ) )
+                    """, Encoding.GZIP );
+            assertParquet( s3MockFixture.readFile( "test", "lfn1/log_type_with_different_file_pattern_59193f7e-1_16.parquet", ofBytes(), Encoding.PLAIN ) )
                 .containOnlyHeaders( "REQUEST_ID", "REQUEST_ID2" )
                 .contains( row( "12345678", "rrrr5678" ),
                     row( "1", "2" ) );
@@ -104,28 +90,25 @@ public class DiskLoggerBackendTest extends Fixtures {
     @Test
     public void testRefreshForceSync() throws IOException {
         Dates.setTimeFixed( 2015, 10, 10, 1 );
-        var headers = new String[] { "REQUEST_ID", "REQUEST_ID2" };
-        var types = new byte[][] { new byte[] { Types.STRING.id }, new byte[] { Types.STRING.id } };
-        var lines = BinaryUtils.lines( List.of( List.of( "12345678", "rrrr5678" ), List.of( "1", "2" ) ) );
+        String[] headers = new String[] { "REQUEST_ID", "REQUEST_ID2" };
+        byte[][] types = new byte[][] { new byte[] { Types.STRING.id }, new byte[] { Types.STRING.id } };
+        byte[] lines = BinaryUtils.lines( List.of( List.of( "12345678", "rrrr5678" ), List.of( "1", "2" ) ) );
         //init new logger
-        try( DiskLoggerBackend backend = new DiskLoggerBackend( testDirectoryFixture.testPath( "logs" ), new WriterConfiguration( 1, DEFAULT_BUFFER ), BPH_12 ) ) {
+        try( StorageLoggerBackend backend = new StorageLoggerBackend( s3MockFixture.getFileSystemConfiguration( "test" ), BPH_12, List.of() ) ) {
             backend.start();
 
             Logger logger = new Logger( backend );
             //log a line to lfn1
             logger.log( "lfn1", Map.of(), "log", headers, types, lines );
-            //check file size
-            assertThat( testDirectoryFixture.testPath( "logs/lfn1/2015-10/10/log_v59193f7e-1_" + HOSTNAME + "-2015-10-10-01-00.tsv.gz/1/00000.tsv.gz" ) )
-                .hasSize( 10 );
             //call refresh() with forceSync flag = true -> trigger flush()
             backend.refresh( true );
             //check file size once more after flush() -> now the size is larger
-            assertFile( testDirectoryFixture.testPath( "logs/lfn1/2015-10/10/log_v59193f7e-1_" + HOSTNAME + "-2015-10-10-01-00.tsv.gz/1/00000.tsv.gz" ) )
-                .hasContent( """
+            assertThat( s3MockFixture.readFile( "test", "lfn1/2015-10/10/log_v59193f7e-1_" + HOSTNAME + "-2015-10-10-01-00.tsv.gz", ofString(), Encoding.GZIP ) )
+                .isEqualTo( """
                     REQUEST_ID\tREQUEST_ID2
                     12345678\trrrr5678
                     1\t2
-                    """, IoStreams.Encoding.GZIP );
+                    """, Encoding.GZIP );
         }
     }
 }

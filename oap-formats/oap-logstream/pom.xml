@@ -14,7 +14,7 @@
     <artifactId>oap-logstream-parent</artifactId>
 
     <properties>
-        <oap.deps.stringtemplate.version>4.0.2</oap.deps.stringtemplate.version>
+        <oap.deps.stringtemplate.version>4.3.4</oap.deps.stringtemplate.version>
         <oap.deps.parquet.version>1.13.1</oap.deps.parquet.version>
     </properties>
 

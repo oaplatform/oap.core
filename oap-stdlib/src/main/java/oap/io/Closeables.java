@@ -39,6 +39,14 @@ public class Closeables {
         }
     }
 
+    public static void close( AutoCloseable closeable ) {
+        try {
+            if( closeable != null ) closeable.close();
+        } catch( Exception e ) {
+            log.error( "Cannot close given resource: {}", closeable.getClass().getCanonicalName(), e );
+        }
+    }
+
     public static void close( ExecutorService service ) {
         try {
             if( service != null ) service.shutdownNow();

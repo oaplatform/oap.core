@@ -22,37 +22,35 @@
  * SOFTWARE.
  */
 
-package oap.logstream.disk;
+package oap.logstream.storage;
 
-import oap.io.Files;
-import oap.io.content.ContentWriter;
+import oap.io.IoStreams.Encoding;
 import oap.logstream.LogId;
+import oap.storage.cloud.S3MockFixture;
 import oap.template.BinaryUtils;
 import oap.template.Types;
 import oap.testng.Fixtures;
-import oap.testng.TestDirectoryFixture;
 import oap.util.Dates;
 import oap.util.LinkedHashMaps;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-import static oap.io.IoStreams.Encoding.GZIP;
-import static oap.io.IoStreams.Encoding.PLAIN;
+import static oap.io.content.ContentReader.ofString;
 import static oap.logstream.LogStreamProtocol.CURRENT_PROTOCOL_VERSION;
 import static oap.logstream.LogStreamProtocol.ProtocolVersion.TSV_V1;
 import static oap.logstream.Timestamp.BPH_12;
-import static oap.testng.Asserts.assertFile;
+import static oap.testng.AbstractFixture.Scope.CLASS;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 public class TsvWriterTest extends Fixtures {
     private static final String FILE_PATTERN = "<p>-file-<INTERVAL>-<LOG_VERSION>-<if(ORGANIZATION)><ORGANIZATION><else>UNKNOWN<endif>.log.gz";
-    private final TestDirectoryFixture testDirectoryFixture;
+    private final S3MockFixture s3MockFixture;
 
     public TsvWriterTest() {
-        testDirectoryFixture = fixture( new TestDirectoryFixture() );
+        s3MockFixture = fixture( new S3MockFixture().withInitialBuckets( "test" ).withScope( CLASS ) );
     }
 
     @Test
@@ -63,17 +61,16 @@ public class TsvWriterTest extends Fixtures {
         Dates.setTimeFixed( 2015, 10, 10, 1, 0 );
         String content = "1\n2\n\r3\t4";
         byte[] bytes = BinaryUtils.line( content );
-        Path logs = testDirectoryFixture.testPath( "logs" );
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
+        try( TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 ) ) {
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() ) ) {
 
             writer.write( CURRENT_PROTOCOL_VERSION, bytes );
         }
 
-        assertFile( logs.resolve( "1-file-00-198163-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "RAW\n1\\n2\\n\\r3\\t4\n", GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-198163-1-UNKNOWN.log.gz", ofString(), Encoding.from( "1-file-00-198163-1-UNKNOWN.log.gz" ) ) )
+            .isEqualTo( "RAW\n1\\n2\\n\\r3\\t4\n" );
     }
 
     @Test
@@ -84,27 +81,26 @@ public class TsvWriterTest extends Fixtures {
         Dates.setTimeFixed( 2015, 10, 10, 1, 0 );
         String content = "1234567890";
         byte[] bytes = BinaryUtils.line( content );
-        Path logs = testDirectoryFixture.testPath( "logs" );
 
-        TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
+        TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() );
 
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
 
         writer.close();
 
-        writer = new TsvWriter( logs, FILE_PATTERN,
+        writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1", "p2", "2" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() );
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
 
         writer.close();
 
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz", ofString(), Encoding.from( "1-file-00-80723ad6-1-UNKNOWN.log.gz" ) ) )
+            .isEqualTo( "REQUEST_ID\n" + content + "\n" );
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.from( "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ) ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -117,10 +113,10 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz/2/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz/2.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-80723ad6-2-UNKNOWN.log.gz", ofString(), Encoding.from( "1-file-00-80723ad6-2-UNKNOWN.log.gz" ) ) )
+            .isEqualTo( "REQUEST_ID\n" + content + "\n" );
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-80723ad6-2-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.from( "1-file-00-80723ad6-2-UNKNOWN.log.gz.metadata.yaml" ) ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -146,13 +142,9 @@ public class TsvWriterTest extends Fixtures {
         Dates.setTimeFixed( 2015, 10, 10, 1, 0 );
         String content = "1234567890";
         byte[] bytes = BinaryUtils.line( content );
-        Path logs = testDirectoryFixture.testPath( "logs" );
-        Files.write(
-            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ),
-            PLAIN, "corrupted file", ContentWriter.ofString() );
-        Files.write(
-            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ),
-            PLAIN, """
+        s3MockFixture.uploadFile( "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz", "corrupted file", Map.of() );
+        s3MockFixture.uploadFile(
+            "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml", """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -160,11 +152,11 @@ public class TsvWriterTest extends Fixtures {
                 headers: "REQUEST_ID"
                 p: "1"
                 VERSION: "80723ad6-1"
-                """, ContentWriter.ofString() );
+                """, Map.of() );
 
-        TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
+        TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() );
 
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
 
@@ -176,9 +168,9 @@ public class TsvWriterTest extends Fixtures {
 
         writer.close();
 
-        writer = new TsvWriter( logs, FILE_PATTERN,
+        writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() );
 
         Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
@@ -187,19 +179,19 @@ public class TsvWriterTest extends Fixtures {
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
         writer.close();
 
-        writer = new TsvWriter( logs, FILE_PATTERN,
+        writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), newHeaders, newTypes ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 );
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() );
 
         Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
         writer.write( CURRENT_PROTOCOL_VERSION, bytes );
         writer.close();
 
 
-        assertFile( logs.resolve( "1-file-01-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-01-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-01-80723ad6-1-UNKNOWN.log.gz", ofString(), Encoding.from( "1-file-01-80723ad6-1-UNKNOWN.log.gz" ) ) )
+            .isEqualTo( "REQUEST_ID\n" + content + "\n" );
+        assertThat( s3MockFixture.readFile( "test", "1-file-01-80723ad6-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.from( "1-file-01-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ) ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -212,12 +204,12 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-02-80723ad6-2-UNKNOWN.log.gz/2/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
-        assertFile( logs.resolve( "1-file-02-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-80723ad6-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content + "\n" );
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-80723ad6-2-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content + "\n" );
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-80723ad6-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -230,16 +222,16 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-11-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-11-80723ad6-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content + "\n" );
 
-        assertFile( logs.resolve( "1-file-11-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content + "\n", GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-11-80723ad6-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content + "\n" );
 
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "corrupted file" );
-        assertFile( logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( "corrupted file" );
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -249,8 +241,8 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "80723ad6-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-ab96b20e-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\tH2\n" + content + "\n", GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-ab96b20e-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\tH2\n" + content + "\n" );
     }
 
     @Test
@@ -260,7 +252,6 @@ public class TsvWriterTest extends Fixtures {
 
         Dates.setTimeFixed( 2015, 10, 10, 1, 0 );
 
-        Path logs = testDirectoryFixture.testPath( "logs" );
         String metadata = """
             ---
             filePrefixPattern: ""
@@ -273,34 +264,26 @@ public class TsvWriterTest extends Fixtures {
             p: "1"
             VERSION: "80723ad6-1"
             """;
-        Files.write(
-            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz" ),
-            PLAIN, "1\t2", ContentWriter.ofString() );
-        Files.write(
-            logs.resolve( "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml" ),
-            PLAIN, metadata, ContentWriter.ofString() );
+        s3MockFixture.uploadFile( "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz", "1\t2", Map.of() );
+        s3MockFixture.uploadFile( "test", "1-file-00-80723ad6-1-UNKNOWN.log.gz.metadata.yaml", metadata, Map.of() );
 
-        Files.write(
-            logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz" ),
-            PLAIN, "11\t22", ContentWriter.ofString() );
-        Files.write(
-            logs.resolve( "1-file-00-80723ad6-2-UNKNOWN.log.gz.metadata.yaml" ),
-            PLAIN, metadata, ContentWriter.ofString() );
+        s3MockFixture.uploadFile( "test", "1-file-00-80723ad6-2-UNKNOWN.log.gz", "11\t22", Map.of() );
+        s3MockFixture.uploadFile( "test", "1-file-00-80723ad6-2-UNKNOWN.log.gz.metadata.yaml", metadata, Map.of() );
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
+        try( TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", Map.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 ) ) {
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() ) ) {
             writer.write( CURRENT_PROTOCOL_VERSION, BinaryUtils.line( "111", "222" ) );
         }
 
-        assertFile( logs.resolve( "1-file-00-ab96b20e-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-ab96b20e-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( """
                 REQUEST_ID\tH2
                 111\t222
-                """, GZIP );
+                """ );
 
-        assertFile( logs.resolve( "1-file-00-ab96b20e-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-ab96b20e-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -325,24 +308,19 @@ public class TsvWriterTest extends Fixtures {
 
         String content = "1234567890";
         byte[] bytes = content.getBytes();
-        Path logs = testDirectoryFixture.testPath( "logs" );
-        Files.write(
-            logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ),
-            PLAIN, "corrupted file", ContentWriter.ofString() );
-        Files.write(
-            logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ),
-            PLAIN, """
-                ---
-                filePrefixPattern: ""
-                type: "type"
-                clientHostname: "log"
-                headers: "REQUEST_ID"
-                p: "1"
-                """, ContentWriter.ofString() );
+        s3MockFixture.uploadFile( "test", "1-file-00-9042dc83-1-UNKNOWN.log.gz", "corrupted file", Map.of() );
+        s3MockFixture.uploadFile( "test", "1-file-00-9042dc83-1-UNKNOWN.log.gz.metadata.yaml", """
+            ---
+            filePrefixPattern: ""
+            type: "type"
+            clientHostname: "log"
+            headers: "REQUEST_ID"
+            p: "1"
+            """, Map.of() );
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
-            new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(),
-            1, 10, BPH_12, 10 ) ) {
+        try( TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
+            new LogId( "", "type", "log",
+                Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(), BPH_12, 10, List.of() ) ) {
             writer.write( TSV_V1, bytes );
 
             Dates.setTimeFixed( 2015, 10, 10, 1, 5 );
@@ -352,8 +330,8 @@ public class TsvWriterTest extends Fixtures {
             writer.write( TSV_V1, bytes );
         }
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN, new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(),
-            1, 10, BPH_12, 10 ) ) {
+        try( TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN, new LogId( "", "type", "log",
+            Map.of( "p", "1" ), new String[] { headers }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(), BPH_12, 10, List.of() ) ) {
             Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
             writer.write( TSV_V1, bytes );
 
@@ -361,16 +339,16 @@ public class TsvWriterTest extends Fixtures {
             writer.write( TSV_V1, bytes );
         }
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN, new LogId( "", "type", "log", Map.of( "p", "1" ), new String[] { newHeaders }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(),
-            1, 10, BPH_12, 10 ) ) {
+        try( TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN, new LogId( "", "type", "log",
+            Map.of( "p", "1" ), new String[] { newHeaders }, new byte[][] { { -1 } } ), new WriterConfiguration.TsvConfiguration(), BPH_12, 10, List.of() ) ) {
             Dates.setTimeFixed( 2015, 10, 10, 1, 14 );
             writer.write( TSV_V1, bytes );
         }
 
-        assertFile( logs.resolve( "1-file-01-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content, GZIP );
-        assertFile( logs.resolve( "1-file-01-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-01-9042dc83-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content );
+        assertThat( s3MockFixture.readFile( "test", "1-file-01-9042dc83-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -383,12 +361,12 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "9042dc83-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content, GZIP );
-        assertFile( logs.resolve( "1-file-02-9042dc83-2-UNKNOWN.log.gz/2/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content, GZIP );
-        assertFile( logs.resolve( "1-file-02-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-9042dc83-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content );
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-9042dc83-2-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content );
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-9042dc83-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -401,16 +379,16 @@ public class TsvWriterTest extends Fixtures {
                 VERSION: "9042dc83-1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-11-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content, GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-11-9042dc83-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content );
 
-        assertFile( logs.resolve( "1-file-11-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\n" + content, GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-11-9042dc83-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\n" + content );
 
-        assertFile( logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "corrupted file" );
-        assertFile( logs.resolve( "1-file-00-9042dc83-1-UNKNOWN.log.gz/1.metadata.yaml" ) )
-            .hasContent( """
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-9042dc83-1-UNKNOWN.log.gz", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( "corrupted file" );
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-9042dc83-1-UNKNOWN.log.gz.metadata.yaml", ofString(), Encoding.PLAIN ) )
+            .isEqualTo( """
                 ---
                 filePrefixPattern: ""
                 type: "type"
@@ -419,8 +397,8 @@ public class TsvWriterTest extends Fixtures {
                 p: "1"
                 """ );
 
-        assertFile( logs.resolve( "1-file-02-e56ba426-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "REQUEST_ID\tH2\n" + content, GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-02-e56ba426-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "REQUEST_ID\tH2\n" + content );
     }
 
     @Test
@@ -431,16 +409,15 @@ public class TsvWriterTest extends Fixtures {
         Dates.setTimeFixed( 2015, 10, 10, 1, 0 );
 
         byte[] bytes = BinaryUtils.lines( List.of( List.of( "", "a" ), List.of( "", "a" ) ) );
-        Path logs = testDirectoryFixture.testPath( "logs" );
 
-        try( TsvWriter writer = new TsvWriter( logs, FILE_PATTERN,
+        try( TsvWriter writer = new TsvWriter( s3MockFixture.getFileSystemConfiguration( "test" ), FILE_PATTERN,
             new LogId( "", "type", "log", LinkedHashMaps.of( "p", "1" ), headers, types ),
-            new WriterConfiguration.TsvConfiguration(), 1, 10, BPH_12, 20 ) ) {
+            new WriterConfiguration.TsvConfiguration(), BPH_12, 20, List.of() ) ) {
 
             writer.write( CURRENT_PROTOCOL_VERSION, bytes );
         }
 
-        assertFile( logs.resolve( "1-file-00-50137474-1-UNKNOWN.log.gz/1/00000.tsv.gz" ) )
-            .hasContent( "T1\tT2\n\ta\n\ta\n", GZIP );
+        assertThat( s3MockFixture.readFile( "test", "1-file-00-50137474-1-UNKNOWN.log.gz", ofString(), Encoding.GZIP ) )
+            .isEqualTo( "T1\tT2\n\ta\n\ta\n" );
     }
 }

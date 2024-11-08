@@ -1,4 +1,4 @@
-package oap.logstream.disk;
+package oap.logstream.storage;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
@@ -7,12 +7,17 @@ import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
-import oap.io.Files;
 import oap.json.Binder;
 import oap.logstream.LogId;
+import oap.storage.cloud.CloudURI;
+import oap.storage.cloud.FileSystem;
 import oap.util.Maps;
+import oap.util.Throwables;
 import org.joda.time.DateTime;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -56,28 +61,26 @@ public class LogMetadata {
             logId.clientHostname, logId.properties, logId.headers, logId.types );
     }
 
-    public static LogMetadata readFor( Path file ) {
-        return Binder.yaml.unmarshal( LogMetadata.class, pathFor( file ) );
+    public static LogMetadata readFor( FileSystem fileSystem, CloudURI file ) {
+        try( InputStream inputStream = fileSystem.getInputStream( pathFor( file ) ) ) {
+            return Binder.yaml.unmarshal( LogMetadata.class, inputStream );
+        } catch( IOException e ) {
+            throw Throwables.propagate( e );
+        }
     }
 
-    public static Path pathFor( Path file ) {
-        return Path.of( file.toString() + EXTENSION );
+    public static CloudURI pathFor( CloudURI file ) {
+        return new CloudURI( file.scheme, file.container, file.path + EXTENSION );
     }
 
     public static boolean isMetadata( Path filename ) {
         return filename.toString().endsWith( EXTENSION );
     }
 
-    public static void rename( Path filename, Path newFile ) {
-        Path from = pathFor( filename );
-        if( Files.exists( from ) )
-            Files.rename( from, pathFor( newFile ) );
-    }
-
-    public static void addProperty( Path path, String name, String value ) {
-        LogMetadata metadata = LogMetadata.readFor( path );
+    public static void addProperty( FileSystem fileSystem, CloudURI path, String name, String value ) {
+        LogMetadata metadata = LogMetadata.readFor( fileSystem, path );
         metadata.setProperty( name, value );
-        metadata.writeFor( path );
+        metadata.writeFor( fileSystem, path );
     }
 
     @JsonAnyGetter
@@ -90,8 +93,12 @@ public class LogMetadata {
         properties.put( name, value );
     }
 
-    public void writeFor( Path file ) {
-        Binder.yaml.marshal( pathFor( file ), this );
+    public void writeFor( FileSystem fileSystem, CloudURI cloudURI ) {
+        try( OutputStream outputStream = fileSystem.getOutputStream( pathFor( cloudURI ), Map.of() ) ) {
+            Binder.yaml.marshal( outputStream, this );
+        } catch( java.io.IOException e ) {
+            throw Throwables.propagate( e );
+        }
     }
 
     public DateTime getDateTime( String name ) {
@@ -102,10 +109,10 @@ public class LogMetadata {
 
     @JsonGetter
     public List<Byte[]> types() {
-        ArrayList<Byte[]> ret = new ArrayList<Byte[]>();
-        for( byte[] t : types ) {
-            Byte[] bb = new Byte[t.length];
-            for( int i = 0; i < t.length; i++ ) {
+        var ret = new ArrayList<Byte[]>();
+        for( var t : types ) {
+            var bb = new Byte[t.length];
+            for( var i = 0; i < t.length; i++ ) {
                 bb[i] = t[i];
             }
             ret.add( bb );
@@ -119,7 +126,7 @@ public class LogMetadata {
     }
 
     public LogMetadata withProperty( String propertyName, String value ) {
-        LinkedHashMap<String, String> newProperties = new LinkedHashMap<>( properties );
+        var newProperties = new LinkedHashMap<>( properties );
         newProperties.put( propertyName, value );
         return new LogMetadata( filePrefixPattern, type, clientHostname, newProperties, headers, types );
     }

@@ -22,33 +22,40 @@
  * SOFTWARE.
  */
 
-package oap.logstream.data.map;
+package oap.logstream.storage;
 
-import oap.dictionary.DictionaryRoot;
-import oap.logstream.AbstractLoggerBackend;
-import oap.logstream.Logger;
+import oap.template.TemplateAccumulatorString;
+import oap.tsv.Printer;
 
-import javax.annotation.Nonnull;
-import java.util.Map;
+public class TemplateAccumulatorTsv extends TemplateAccumulatorString {
 
-public abstract class AbstractMapLogger extends Logger {
-    private final MapLogRenderer renderer;
-    private final String name;
-
-    public AbstractMapLogger( AbstractLoggerBackend backend, DictionaryRoot datamodel, String id, String tag, String name ) {
-        super( backend );
-        this.name = name;
-        this.renderer = new MapLogModel( datamodel ).renderer( id, tag );
+    public TemplateAccumulatorTsv( StringBuilder sb ) {
+        super( sb );
     }
 
-    public void log( @Nonnull Map<String, Object> data ) {
-        this.log( prefix( data ), substitutions( data ), name, renderer.headers(), renderer.types(), renderer.render( data ) );
+    public TemplateAccumulatorTsv() {
     }
 
-    @Nonnull
-    public abstract String prefix( @Nonnull Map<String, Object> data );
+    public TemplateAccumulatorTsv( String dateTimeFormat ) {
+        super( dateTimeFormat );
+    }
 
-    @Nonnull
-    public abstract Map<String, String> substitutions( @Nonnull Map<String, Object> data );
+    public TemplateAccumulatorTsv( StringBuilder sb, String dateTimeFormat ) {
+        super( sb, dateTimeFormat );
+    }
 
+    @Override
+    public void acceptText( String text ) {
+        super.acceptText( Printer.escape( text, false ) );
+    }
+
+    @Override
+    public void accept( String text ) {
+        acceptText( text );
+    }
+
+    @Override
+    public TemplateAccumulatorTsv newInstance( StringBuilder mutable ) {
+        return new TemplateAccumulatorTsv( mutable );
+    }
 }

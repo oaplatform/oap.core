@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package oap.logstream.disk;
+package oap.logstream.storage;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.google.common.base.MoreObjects;
@@ -41,21 +41,19 @@ import oap.concurrent.Executors;
 import oap.concurrent.scheduler.ScheduledExecutorService;
 import oap.google.JodaTicker;
 import oap.io.Closeables;
-import oap.io.Files;
 import oap.logstream.AbstractLoggerBackend;
 import oap.logstream.AvailabilityReport;
 import oap.logstream.LogId;
 import oap.logstream.LogStreamProtocol.ProtocolVersion;
 import oap.logstream.LoggerException;
 import oap.logstream.Timestamp;
+import oap.storage.cloud.FileSystemConfiguration;
 import oap.util.Dates;
 import oap.util.Lists;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.joda.time.DateTime;
 
 import java.io.Closeable;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,19 +62,18 @@ import java.util.concurrent.TimeUnit;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static oap.logstream.AvailabilityReport.State.FAILED;
 import static oap.logstream.AvailabilityReport.State.OPERATIONAL;
 
 @Slf4j
-public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneable, AutoCloseable {
+public class StorageLoggerBackend extends AbstractLoggerBackend implements Cloneable, AutoCloseable {
     public static final int DEFAULT_BUFFER = 1024 * 100;
     public static final long DEFAULT_FREE_SPACE_REQUIRED = 2000000000L;
     public final LinkedHashMap<String, FilePatternConfiguration> filePatternByType = new LinkedHashMap<>();
     public final WriterConfiguration writerConfiguration;
-    private final Path logDirectory;
     private final Timestamp timestamp;
     private final LoadingCache<LogId, AbstractWriter<? extends Closeable>> writers;
     private final ScheduledExecutorService pool;
+    private final List<EndFileListener> endFileListeners;
     public String filePattern = "/<YEAR>-<MONTH>/<DAY>/<LOG_TYPE>_v<LOG_VERSION>_<CLIENT_HOST>-<YEAR>-<MONTH>-<DAY>-<HOUR>-<INTERVAL>.tsv.gz";
     public long requiredFreeSpace = DEFAULT_FREE_SPACE_REQUIRED;
     public int maxVersions = 20;
@@ -84,14 +81,17 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
     public long refreshPeriod = Dates.s( 10 );
     private volatile boolean closed;
 
-    @SuppressWarnings( "unchecked" )
-    public DiskLoggerBackend( Path logDirectory, WriterConfiguration writerConfiguration, Timestamp timestamp ) {
-        log.info( "logDirectory '{}' shards {} timestamp {} bufferSize {} writerConfiguration {} refreshInitDelay {} refreshPeriod {}",
-            logDirectory, writerConfiguration.shards, timestamp, FileUtils.byteCountToDisplaySize( writerConfiguration.bufferSize ), writerConfiguration,
+    public StorageLoggerBackend( FileSystemConfiguration fileSystemConfiguration, Timestamp timestamp, List<EndFileListener> endFileListeners ) {
+        this( fileSystemConfiguration, new WriterConfiguration(), timestamp, endFileListeners );
+    }
+
+    public StorageLoggerBackend( FileSystemConfiguration fileSystemConfiguration, WriterConfiguration writerConfiguration, Timestamp timestamp, List<EndFileListener> endFileListeners ) {
+        log.info( "fileSystemConfiguration '{}' timestamp {} writerConfiguration {} refreshInitDelay {} refreshPeriod {}",
+            fileSystemConfiguration, timestamp, writerConfiguration,
             Dates.durationToString( refreshInitDelay ), Dates.durationToString( refreshPeriod ) );
 
+        this.endFileListeners = endFileListeners;
 
-        this.logDirectory = logDirectory;
         this.writerConfiguration = writerConfiguration;
         this.timestamp = timestamp;
 
@@ -110,15 +110,14 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
 
                     LogFormat logFormat = LogFormat.parse( fp.path );
                     return switch( logFormat ) {
-                        case PARQUET -> new ParquetLogWriter( logDirectory, fp.path, id,
-                            writerConfiguration.parquet, writerConfiguration.shards, writerConfiguration.bufferSize, timestamp, maxVersions );
-                        case TSV_GZ, TSV_ZSTD -> new TsvWriter( logDirectory, fp.path, id,
-                            writerConfiguration.tsv, writerConfiguration.shards, writerConfiguration.bufferSize, timestamp, maxVersions );
+                        case PARQUET -> new ParquetLogWriter( fileSystemConfiguration, fp.path, id,
+                            writerConfiguration.parquet, timestamp, maxVersions, endFileListeners );
+                        case TSV_GZ, TSV_ZSTD -> new TsvWriter( fileSystemConfiguration, fp.path, id,
+                            writerConfiguration.tsv, timestamp, maxVersions, endFileListeners );
                     };
                 }
             } );
-        Metrics.gauge( "logstream_logging_disk_writers", List.of( Tag.of( "path", logDirectory.toString() ) ),
-            writers, Cache::size );
+        Metrics.gauge( "logstream_logging_disk_writers", writers, Cache::size );
 
         pool = Executors.newScheduledThreadPool( 1, "disk-logger-backend" );
     }
@@ -188,12 +187,7 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
 
     @Override
     public AvailabilityReport availabilityReport() {
-        long usableSpaceAtDirectory = Files.usableSpaceAtDirectory( logDirectory );
-        var enoughSpace = usableSpaceAtDirectory > requiredFreeSpace;
-        if( !enoughSpace ) {
-            log.error( "There is no enough space on device {}, required {}, but {} available", logDirectory, requiredFreeSpace, usableSpaceAtDirectory );
-        }
-        return new AvailabilityReport( enoughSpace ? OPERATIONAL : FAILED );
+        return new AvailabilityReport( OPERATIONAL );
     }
 
     public void refresh() {
@@ -219,9 +213,7 @@ public class DiskLoggerBackend extends AbstractLoggerBackend implements Cloneabl
     @Override
     public String toString() {
         return MoreObjects.toStringHelper( this )
-            .add( "path", logDirectory )
             .add( "filePattern", filePattern )
-            .add( "buffer", writerConfiguration.bufferSize )
             .add( "bucketsPerHour", timestamp.bucketsPerHour )
             .add( "writers", writers.size() )
             .toString();

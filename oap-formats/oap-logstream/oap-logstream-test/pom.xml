@@ -64,6 +64,12 @@
         </dependency>
 
         <dependency>
+            <groupId>oap</groupId>
+            <artifactId>oap-storage-cloud-test</artifactId>
+            <version>${parent.version}</version>
+        </dependency>
+
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>

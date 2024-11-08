@@ -10,7 +10,9 @@ import oap.testng.AbstractFixture;
 import oap.testng.TestDirectoryFixture;
 import oap.util.Lists;
 import oap.util.Maps;
+import org.jetbrains.annotations.NotNull;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.endpoints.Endpoint;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -31,7 +33,6 @@ import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
 
 import java.io.IOException;
 import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -122,11 +123,21 @@ public class S3MockFixture extends AbstractFixture<S3MockFixture> {
         s3.putObject( putObjectRequest, file );
     }
 
-    public <T> T readFile( String container, String name, ContentReader<T> contentReader ) {
+    public void uploadFile( String container, String name, String content, Map<String, String> tags ) {
+        final S3Client s3 = getS3();
+
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder().bucket( container ).key( name )
+            .tagging( Tagging.builder().tagSet( Maps.toList( tags, ( k, v ) -> Tag.builder().key( k ).value( v ).build() ) ).build() )
+            .build();
+
+        s3.putObject( putObjectRequest, RequestBody.fromString( content ) );
+    }
+
+    public <T> T readFile( String container, String name, ContentReader<T> contentReader, Encoding encoding ) {
         S3Client s3 = getS3();
 
         try( ResponseInputStream<GetObjectResponse> s3Object = s3.getObject( GetObjectRequest.builder().bucket( container ).key( name ).build() ) ) {
-            return contentReader.read( IoStreams.in( s3Object, Encoding.from( name ) ) );
+            return contentReader.read( IoStreams.in( s3Object, encoding ) );
         } catch( IOException e ) {
             throw new RuntimeException( e );
         }
@@ -158,4 +169,21 @@ public class S3MockFixture extends AbstractFixture<S3MockFixture> {
         }
 
     }
+
+    @NotNull
+    public FileSystemConfiguration getFileSystemConfiguration( String container ) {
+        return new FileSystemConfiguration( Map.of(
+            "fs.s3.clouds.identity", "access_key",
+            "fs.s3.clouds.credential", "access_secret",
+            "fs.s3.clouds.s3.virtual-host-buckets", false,
+            "fs.s3.clouds.endpoint", "http://localhost:" + getHttpPort(),
+            "fs.s3.clouds.headers", "DEBUG",
+
+            "fs.file.clouds.filesystem.basedir", testDirectoryFixture.testDirectory(),
+
+            "fs.default.clouds.scheme", "s3",
+            "fs.default.clouds.container", container
+        ) );
+    }
+
 }
