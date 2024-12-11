@@ -30,11 +30,11 @@ import java.util.Optional;
 
 public interface Authenticator {
 
-    Result<Authentication, AuthenticationFailure> authenticate( String email, String password, Optional<String> tfaCode );
+    Result<Authentication, AuthenticationFailure> authenticate( String email, String password, Optional<String> tfaCode, Optional<String> fingerprint );
 
     Result<Authentication, AuthenticationFailure> authenticate( String email, Optional<String> tfaCode );
 
-    Result<Authentication, AuthenticationFailure> refreshToken( String refreshToken, Optional<String> currentOrganization );
+    Result<Authentication, AuthenticationFailure> refreshToken( String refreshToken, Optional<String> currentOrganization, Optional<String> fingerprint );
 
     Optional<Authentication> authenticateTrusted( String email );
 
@@ -42,5 +42,5 @@ public interface Authenticator {
 
     void invalidate( String email );
 
-    Result<Authentication, AuthenticationFailure> authenticateWithActiveOrgId( String jwtToken, String organizationId );
+    Result<Authentication, AuthenticationFailure> authenticateWithActiveOrgId( String accessToken, String refreshToken, String organizationId, Optional<String> fingerprint );
 }

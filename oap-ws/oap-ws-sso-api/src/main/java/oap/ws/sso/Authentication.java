@@ -59,7 +59,7 @@ public class Authentication implements Serializable {
         @Serial
         private static final long serialVersionUID = -5807006482186140531L;
 
-        public final Date expires;
+        public final DateTime expires;
         public final String jwt;
     }
 
