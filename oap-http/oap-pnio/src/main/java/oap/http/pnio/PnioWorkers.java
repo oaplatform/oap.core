@@ -6,13 +6,12 @@ import oap.io.Closeables;
 
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class PnioWorkers<WorkflowState> implements AutoCloseable {
     public final ExecutorService pool;
     public final PnioWorker<WorkflowState>[] workers;
     private final ArrayBlockingQueue<PnioTask<WorkflowState>> queue;
-    public AtomicInteger counter = new AtomicInteger( 0 );
+//    public AtomicInteger counter = new AtomicInteger( 0 );
 
     public PnioWorkers( int threads, int maxQueueSize ) {
         pool = Executors.newFixedThreadPool( threads > 0 ? threads : Runtime.getRuntime().availableProcessors(),
