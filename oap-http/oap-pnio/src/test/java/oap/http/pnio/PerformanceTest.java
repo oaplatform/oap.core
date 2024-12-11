@@ -30,10 +30,10 @@ public class PerformanceTest {
             .requestSize( 64000 )
             .responseSize( 64000 )
             .blockingPoolSize( 10 )
-            .maxQueueSize( 21 )
+            .maxQueueSize( 32 )
             .build();
         try( NioHttpServer httpServer = new NioHttpServer( new NioHttpServer.DefaultPort( port ) ) ) {
-            httpServer.ioThreads = 12;
+            httpServer.ioThreads = 24;
             httpServer.start();
 
             try( PnioHttpHandler<TestState> httpHandler = new PnioHttpHandler<>( httpServer, settings, workflow, new PnioHttpHandlerTest.TestPnioListener() ) ) {
