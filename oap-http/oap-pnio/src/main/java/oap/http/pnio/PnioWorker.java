@@ -12,7 +12,11 @@ public class PnioWorker<WorkflowState> implements Runnable {
     public Thread thread;
 
     public PnioWorker( int maxQueueSize ) {
-        queue = new ArrayBlockingQueue<>( maxQueueSize );
+        this( new ArrayBlockingQueue<>( maxQueueSize ) );
+    }
+
+    public PnioWorker( ArrayBlockingQueue<PnioTask<WorkflowState>> queue ) {
+        this.queue = queue;
     }
 
     @Override
@@ -29,7 +33,9 @@ public class PnioWorker<WorkflowState> implements Runnable {
                     task.pnioExchange.response();
                 } catch( Throwable t ) {
                     task.pnioExchange.completeWithFail( t );
-                    task.pnioExchange.response();
+                    if( !task.pnioExchange.oapExchange.isResponseStarted() ) {
+                        task.pnioExchange.response();
+                    }
                 }
             } catch( InterruptedException t ) {
                 done = true;

@@ -4,12 +4,14 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import oap.concurrent.Executors;
 import oap.io.Closeables;
 
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PnioWorkers<WorkflowState> implements AutoCloseable {
     public final ExecutorService pool;
     public final PnioWorker<WorkflowState>[] workers;
+    private final ArrayBlockingQueue<PnioTask<WorkflowState>> queue;
     public AtomicInteger counter = new AtomicInteger( 0 );
 
     public PnioWorkers( int threads, int maxQueueSize ) {
@@ -18,17 +20,19 @@ public class PnioWorkers<WorkflowState> implements AutoCloseable {
 
         workers = new PnioWorker[threads];
 
+        queue = new ArrayBlockingQueue<>( maxQueueSize );
+
         for( int i = 0; i < threads; i++ ) {
-            PnioWorker<WorkflowState> pnioWorker = new PnioWorker<>( maxQueueSize );
+            PnioWorker<WorkflowState> pnioWorker = new PnioWorker<>( queue );
             pool.execute( pnioWorker );
             workers[i] = pnioWorker;
         }
     }
 
     public boolean register( PnioExchange<WorkflowState> pnioExchange, PnioTask<WorkflowState> task ) {
-        int hash = counter.incrementAndGet() % workers.length;
+//        int hash = counter.incrementAndGet() % workers.length;
 
-        if( !workers[hash].queue.offer( task ) ) {
+        if( !queue.offer( task ) ) {
             pnioExchange.completeWithRejected();
             pnioExchange.response();
 
