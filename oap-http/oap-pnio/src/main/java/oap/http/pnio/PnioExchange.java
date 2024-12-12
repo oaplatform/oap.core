@@ -10,6 +10,7 @@
 package oap.http.pnio;
 
 import com.google.common.base.Preconditions;
+import com.sun.jna.platform.win32.WinBase;
 import io.undertow.util.StatusCodes;
 import lombok.extern.slf4j.Slf4j;
 import oap.http.Cookie;
@@ -21,6 +22,7 @@ import java.nio.BufferOverflowException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -195,8 +197,7 @@ public class PnioExchange<WorkflowState> {
             RequestWorkflow.Node<WorkflowState> capturedNode = node;
             PnioRequestHandler.Type currentType = capturedNode.handler.getType();
 
-            if ((currentType == PnioRequestHandler.Type.COMPUTE || currentType == PnioRequestHandler.Type.ASYNC) &&
-                (previousType == PnioRequestHandler.Type.ASYNC || previousType == PnioRequestHandler.Type.COMPUTE)) {
+            if ( noSwithcingContextTypes().contains( currentType ) && noSwithcingContextTypes().contains( previousType )) {
                 future = future.thenRun(() -> {
                     try {
                         capturedNode.handler.handle(this, workflowState);
@@ -223,6 +224,10 @@ public class PnioExchange<WorkflowState> {
 
         return future;
 
+    }
+
+    private List<PnioRequestHandler.Type> noSwithcingContextTypes() {
+        return List.of( PnioRequestHandler.Type.COMPUTE, PnioRequestHandler.Type.ASYNC );
     }
 
     public ExecutorService getExecutorService( PnioRequestHandler.Type type ) {
