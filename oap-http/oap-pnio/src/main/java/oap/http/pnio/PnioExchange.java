@@ -195,7 +195,8 @@ public class PnioExchange<WorkflowState> {
             RequestWorkflow.Node<WorkflowState> capturedNode = node;
             PnioRequestHandler.Type currentType = capturedNode.handler.getType();
 
-            if ((currentType == PnioRequestHandler.Type.COMPUTE || currentType == PnioRequestHandler.Type.BLOCK) && currentType == previousType) {
+            if ((currentType == PnioRequestHandler.Type.COMPUTE || currentType == PnioRequestHandler.Type.ASYNC) &&
+                (previousType == PnioRequestHandler.Type.ASYNC || previousType == PnioRequestHandler.Type.COMPUTE)) {
                 future = future.thenRun(() -> {
                     try {
                         capturedNode.handler.handle(this, workflowState);
