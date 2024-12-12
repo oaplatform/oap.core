@@ -19,6 +19,7 @@ import oap.http.server.nio.NioHttpServer;
 import oap.io.Closeables;
 
 import java.io.Closeable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 @Slf4j
@@ -84,14 +85,25 @@ public class PnioHttpHandler<WorkflowState> implements Closeable, AutoCloseable 
         } );
 
         oapExchange.exchange.getRequestReceiver().setMaxBufferSize( requestSize );
+        PnioExchange<WorkflowState> pnioExchange = new PnioExchange<>( responseSize, blockingPool, workflow, workflowState, oapExchange, timeout, workers, pnioListener );
 
         oapExchange.exchange.getRequestReceiver().receiveFullBytes( ( exchange, message ) -> {
-            PnioExchange<WorkflowState> pnioExchange = new PnioExchange<>( message, responseSize, blockingPool, workflow, workflowState, oapExchange, timeout, workers, pnioListener );
-
-            workers.register( pnioExchange, new PnioTask<>( pnioExchange ) );
+            System.out.println("Request: " + Thread.currentThread().getName());
+            pnioExchange.setRequestBuffer( message );
+            pnioExchange.buildChain().thenRunAsync( () -> {
+                System.out.println("Response: " + Thread.currentThread().getName());
+                // Add Send response here
+            }, exchange.getIoThread() )
+                .exceptionally( e -> {
+                if( e instanceof Receiver.RequestToLargeException ) {
+                    pnioExchange.completeWithBufferOverflow( true );
+                } else {
+                    pnioExchange.completeWithFail( e );
+                }
+                pnioExchange.response();
+                return null;
+            });
         }, ( exchange, e ) -> {
-            PnioExchange<WorkflowState> pnioExchange = new PnioExchange<>( null, responseSize, blockingPool, workflow, workflowState, oapExchange, timeout, workers, pnioListener );
-
             if( e instanceof Receiver.RequestToLargeException ) {
                 pnioExchange.completeWithBufferOverflow( true );
             } else {
@@ -100,8 +112,6 @@ public class PnioHttpHandler<WorkflowState> implements Closeable, AutoCloseable 
 
             pnioExchange.response();
         } );
-
-        oapExchange.exchange.dispatch();
     }
 
     public void updateWorkflow( RequestWorkflow<WorkflowState> newWorkflow ) {

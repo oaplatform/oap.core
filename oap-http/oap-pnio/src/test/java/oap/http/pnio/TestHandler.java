@@ -49,8 +49,9 @@ public class TestHandler extends PnioRequestHandler<TestState> {
 
     @Override
     public void handle( PnioExchange<TestState> pnioExchange, TestState testState ) throws InterruptedException {
-        String data = "name '" + name + "' type " + type + " thread '" + Thread.currentThread().getName().substring( 7, 11 )
+        String data = "name '" + name + "' type " + type + " thread '" + Thread.currentThread().getName()
             + "' new thread " + !testState.oldThreadName.equals( Thread.currentThread().getName() );
+        System.out.println(data);
 
         log.debug( data );
 

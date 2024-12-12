@@ -16,6 +16,7 @@ import oap.http.Cookie;
 import oap.http.Http;
 import oap.http.server.nio.HttpServerExchange;
 
+import java.io.IOException;
 import java.nio.BufferOverflowException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -24,6 +25,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -32,7 +34,7 @@ import java.util.concurrent.TimeoutException;
 public class PnioExchange<WorkflowState> {
     public final HttpServerExchange oapExchange;
 
-    public final byte[] requestBuffer;
+    public byte[] requestBuffer;
     public final PnioResponseBuffer responseBuffer;
     public final long timeoutNano;
     public final HttpResponse httpResponse = new HttpResponse();
@@ -45,11 +47,10 @@ public class PnioExchange<WorkflowState> {
     public RequestWorkflow.Node<WorkflowState> currentTaskNode;
     public CompletableFuture<Void> completableFuture;
 
-    public PnioExchange( byte[] requestBuffer, int responseSize, ExecutorService blockingPool,
+    public PnioExchange( int responseSize, ExecutorService blockingPool,
                          RequestWorkflow<WorkflowState> workflow, WorkflowState inputState,
                          HttpServerExchange oapExchange, long timeout,
                          PnioWorkers<WorkflowState> workers, PnioListener<WorkflowState> pnioListener ) {
-        this.requestBuffer = requestBuffer;
         this.responseBuffer = new PnioResponseBuffer( responseSize );
 
         this.blockingPool = blockingPool;
@@ -65,6 +66,10 @@ public class PnioExchange<WorkflowState> {
         this.pnioListener = pnioListener;
 
         PnioMetrics.activeRequests.incrementAndGet();
+    }
+
+    public void setRequestBuffer( byte[] requestBuffer ) {
+        this.requestBuffer = requestBuffer;
     }
 
     public boolean gzipSupported() {
@@ -165,6 +170,71 @@ public class PnioExchange<WorkflowState> {
             completeWithInterrupted();
         } catch( Throwable e ) {
             completeWithFail( e );
+        }
+    }
+
+    public CompletableFuture<Void> buildChain() {
+        return buildChain(currentTaskNode);
+    }
+
+    private CompletableFuture<Void> buildChain(RequestWorkflow.Node<WorkflowState> current) {
+        RequestWorkflow.Node<WorkflowState> node = current;
+        CompletableFuture<Void> future = CompletableFuture.runAsync( () -> {
+            try {
+                current.handler.handle( this, workflowState );
+            } catch( InterruptedException | IOException e ) {
+                completeWithFail( e );
+            }
+        }, getExecutorService( current.handler.getType() )).orTimeout( getTimeLeftNano(), TimeUnit.NANOSECONDS );
+        node = node.next;
+
+
+        PnioRequestHandler.Type previousType = current.handler.getType();
+
+        while (node != null) {
+            RequestWorkflow.Node<WorkflowState> capturedNode = node;
+            PnioRequestHandler.Type currentType = capturedNode.handler.getType();
+
+            if ((currentType == PnioRequestHandler.Type.COMPUTE || currentType == PnioRequestHandler.Type.BLOCK) && currentType == previousType) {
+                future = future.thenRun(() -> {
+                    try {
+                        capturedNode.handler.handle(this, workflowState);
+                    } catch (InterruptedException | IOException e) {
+                        completeWithFail(e);
+                    }
+                });
+            } else {
+                future = future.thenRunAsync(() -> {
+                    try {
+                        capturedNode.handler.handle(this, workflowState);
+                    } catch (InterruptedException | IOException e) {
+                        completeWithFail(e);
+                    }
+                }, getExecutorService( capturedNode.handler.getType() ))
+                    .orTimeout( getTimeLeftNano(), TimeUnit.NANOSECONDS );
+            }
+
+            previousType = currentType;
+            node = node.next;
+        }
+
+
+
+        return future;
+
+    }
+
+    public ExecutorService getExecutorService( PnioRequestHandler.Type type ) {
+        switch( type ) {
+            case ASYNC, COMPUTE -> {
+                return this.oapExchange.getWorkerPool();
+            }
+            case BLOCK -> {
+                return ForkJoinPool.commonPool();
+            }
+            default -> {
+                return null;
+            }
         }
     }
 
