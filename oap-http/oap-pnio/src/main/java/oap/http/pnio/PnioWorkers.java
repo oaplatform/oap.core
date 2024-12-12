@@ -11,7 +11,6 @@ public class PnioWorkers<WorkflowState> implements AutoCloseable {
     public final ExecutorService pool;
     public final PnioWorker<WorkflowState>[] workers;
     private final ArrayBlockingQueue<PnioTask<WorkflowState>> queue;
-//    public AtomicInteger counter = new AtomicInteger( 0 );
 
     public PnioWorkers( int threads, int maxQueueSize ) {
         pool = Executors.newFixedThreadPool( threads > 0 ? threads : Runtime.getRuntime().availableProcessors(),
@@ -29,8 +28,6 @@ public class PnioWorkers<WorkflowState> implements AutoCloseable {
     }
 
     public boolean register( PnioExchange<WorkflowState> pnioExchange, PnioTask<WorkflowState> task ) {
-//        int hash = counter.incrementAndGet() % workers.length;
-
         if( !queue.offer( task ) ) {
             pnioExchange.completeWithRejected();
             pnioExchange.response();
