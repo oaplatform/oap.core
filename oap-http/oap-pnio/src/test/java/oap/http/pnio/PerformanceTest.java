@@ -30,8 +30,8 @@ public class PerformanceTest {
             .requestSize( 64000 )
             .responseSize( 64000 )
             .blockingPoolSize( 10 )
-            .threads( 7 )
-            .maxQueueSize( 128 )
+            .threads( 10 )
+            .maxQueueSize( 256 )
             .build();
         try( NioHttpServer httpServer = new NioHttpServer( new NioHttpServer.DefaultPort( port ) ) ) {
             httpServer.ioThreads = 4;
