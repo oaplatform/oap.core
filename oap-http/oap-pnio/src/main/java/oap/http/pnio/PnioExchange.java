@@ -10,7 +10,6 @@
 package oap.http.pnio;
 
 import com.google.common.base.Preconditions;
-import com.sun.jna.platform.win32.WinBase;
 import io.undertow.util.StatusCodes;
 import lombok.extern.slf4j.Slf4j;
 import oap.http.Cookie;
@@ -176,7 +175,11 @@ public class PnioExchange<WorkflowState> {
     }
 
     public CompletableFuture<Void> buildChain() {
-        return buildChain(currentTaskNode);
+        return buildChain(currentTaskNode).thenRun( () -> {
+            if (processState == ProcessState.RUNNING) {
+                complete();
+            }
+        } );
     }
 
     private CompletableFuture<Void> buildChain(RequestWorkflow.Node<WorkflowState> current) {
@@ -189,7 +192,6 @@ public class PnioExchange<WorkflowState> {
             }
         }, getExecutorService( current.handler.getType() )).orTimeout( getTimeLeftNano(), TimeUnit.NANOSECONDS );
         node = node.next;
-
 
         PnioRequestHandler.Type previousType = current.handler.getType();
 
@@ -219,9 +221,7 @@ public class PnioExchange<WorkflowState> {
             previousType = currentType;
             node = node.next;
         }
-
-
-
+        
         return future;
 
     }
