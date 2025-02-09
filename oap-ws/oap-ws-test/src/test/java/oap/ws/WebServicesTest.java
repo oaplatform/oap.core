@@ -143,7 +143,7 @@ public class WebServicesTest extends Fixtures {
             .responded( OK, "OK", APPLICATION_JSON, "\"1234\"" );
         assertPost( kernel.httpUrl( "/x/v/math/string" ), "1234", Http.ContentType.APPLICATION_OCTET_STREAM )
             .satisfies( response -> assertThat( response.headers )
-                .contains( __( "Content-Type", "application/json" ) ) );
+                .contains( __( "content-type", "application/json" ) ) );
     }
 
     @Test

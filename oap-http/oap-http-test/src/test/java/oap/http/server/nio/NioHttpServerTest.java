@@ -56,8 +56,8 @@ public class NioHttpServerTest extends Fixtures {
 
             assertThat( response.getHeaders() )
                 .hasSize( 3 )
-                .containsKey( DATE )
-                .containsKey( CONNECTION );
+                .containsKey( DATE.toLowerCase() )
+                .containsKey( CONNECTION.toLowerCase() );
         }
 
         try( NioHttpServer httpServer = new NioHttpServer( new NioHttpServer.DefaultPort( port ) ) ) {

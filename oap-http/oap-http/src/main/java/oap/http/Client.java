@@ -769,6 +769,7 @@ public final class Client implements Closeable, AutoCloseable {
 
             if( certificateLocation != null ) {
                 builder.sslSocketFactory( HttpClient.createSSLContext( certificateLocation, certificatePassword ).getSocketFactory(), HttpClient.createX509TrustManager() );
+                builder.hostnameVerifier( ( _, _ ) -> true );
             }
 
             return builder.build();
