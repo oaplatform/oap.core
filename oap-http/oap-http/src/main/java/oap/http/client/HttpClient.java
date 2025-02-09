@@ -32,17 +32,34 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.Arrays;
 
 import static oap.io.IoStreams.Encoding.PLAIN;
 
 @Slf4j
 public final class HttpClient {
+    public static final HttpClient DEFAULT = new HttpClient();
+    public static final X509TrustManager ACCEPTING_TRUST_MANAGER = new X509TrustManager() {
+        @Override
+        public void checkClientTrusted( X509Certificate[] x509Certificates, String s ) {
+        }
+
+        @Override
+        public void checkServerTrusted( X509Certificate[] x509Certificates, String s ) {
+        }
+
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return new X509Certificate[0];
+        }
+    };
     private java.net.http.HttpClient impl;
 
     private HttpClient() {
@@ -59,25 +76,9 @@ public final class HttpClient {
         }
     }
 
-    public static final HttpClient DEFAULT = new HttpClient();
-    public static final X509TrustManager ACCEPTING_TRUST_MANAGER = new X509TrustManager() {
-        @Override
-        public void checkClientTrusted( X509Certificate[] x509Certificates, String s ) {
-        }
-
-        @Override
-        public void checkServerTrusted( X509Certificate[] x509Certificates, String s ) {
-        }
-
-        @Override
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
-    };
-
     @SneakyThrows
     public static SSLContext createSSLContext( Path certificateLocation, String certificatePassword ) {
-        try( var inputStream = IoStreams.in( certificateLocation, PLAIN ) ) {
+        try( InputStream inputStream = IoStreams.in( certificateLocation, PLAIN ) ) {
             KeyStore keyStore = KeyStore.getInstance( "JKS" );
             keyStore.load( inputStream, certificatePassword.toCharArray() );
 
@@ -89,5 +90,16 @@ public final class HttpClient {
 
             return sslContext;
         }
+    }
+
+    @SneakyThrows
+    public static X509TrustManager createX509TrustManager() {
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance( TrustManagerFactory.getDefaultAlgorithm() );
+        trustManagerFactory.init( ( KeyStore ) null );
+        TrustManager[] trustManagers = trustManagerFactory.getTrustManagers();
+        if( trustManagers.length != 1 || !( trustManagers[0] instanceof X509TrustManager trustManager ) ) {
+            throw new IllegalStateException( "Unexpected default trust managers:" + Arrays.toString( trustManagers ) );
+        }
+        return trustManager;
     }
 }

@@ -27,7 +27,6 @@ package oap.http;
 import lombok.extern.slf4j.Slf4j;
 import oap.testng.Fixtures;
 import oap.testng.TestDirectoryFixture;
-import org.apache.http.entity.ContentType;
 import org.mockserver.integration.ClientAndServer;
 import org.mockserver.matchers.Times;
 import org.mockserver.model.HttpRequest;
@@ -37,6 +36,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -82,7 +82,7 @@ public class ClientTest extends Fixtures {
                     .withBody( "test1" )
             );
 
-        var path = testDirectoryFixture.testPath( "new.file" );
+        Path path = testDirectoryFixture.testPath( "new.file" );
         var progress = new AtomicInteger();
         var download = Client.DEFAULT.download( "http://localhost:" + port + "/file",
             Optional.empty(), Optional.of( path ), progress::set );
@@ -108,8 +108,8 @@ public class ClientTest extends Fixtures {
                     .withBody( "test1" )
             );
 
-        var progress = new AtomicInteger();
-        var download = Client.DEFAULT.download( "http://localhost:" + port + "/file.gz",
+        AtomicInteger progress = new AtomicInteger();
+        Optional<Path> download = Client.DEFAULT.download( "http://localhost:" + port + "/file.gz",
             Optional.empty(), Optional.empty(), progress::set );
         assertThat( download ).isPresent();
         assertFile( download.get() ).exists().hasSize( 5 );
@@ -126,7 +126,7 @@ public class ClientTest extends Fixtures {
             Times.once()
         ).respond( HttpResponse.response().withStatusCode( HTTP_OK ).withBody( "ok" ) );
 
-        try( var os = Client.DEFAULT.post( "http://localhost:" + port + "/test", ContentType.TEXT_PLAIN ) ) {
+        try( Client.OutputStreamWithResponse os = Client.DEFAULT.post( "http://localhost:" + port + "/test", Http.ContentType.TEXT_PLAIN ) ) {
             os.write( "test".getBytes() );
             os.write( '\n' );
             os.write( "test1".getBytes() );

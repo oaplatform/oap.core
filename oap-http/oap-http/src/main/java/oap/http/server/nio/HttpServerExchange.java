@@ -31,6 +31,7 @@ import io.undertow.util.HeaderValues;
 import io.undertow.util.Headers;
 import io.undertow.util.HttpString;
 import lombok.ToString;
+import oap.http.Http;
 import oap.io.MimeTypes;
 import oap.json.Binder;
 import oap.util.HashMaps;
@@ -54,14 +55,12 @@ import static java.net.HttpURLConnection.HTTP_MOVED_TEMP;
 import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
 import static java.net.HttpURLConnection.HTTP_NO_CONTENT;
 import static java.net.HttpURLConnection.HTTP_OK;
-import static org.apache.http.entity.ContentType.APPLICATION_JSON;
-import static org.apache.http.entity.ContentType.TEXT_PLAIN;
 
 @ToString
 public class HttpServerExchange {
     private static final Map<String, Function<Object, String>> producers = HashMaps.of(
-        TEXT_PLAIN.getMimeType(), String::valueOf,
-        APPLICATION_JSON.getMimeType(), Binder.json::marshal
+        Http.ContentType.TEXT_PLAIN, String::valueOf,
+        Http.ContentType.APPLICATION_JSON, Binder.json::marshal
     );
 
     public final io.undertow.server.HttpServerExchange exchange;

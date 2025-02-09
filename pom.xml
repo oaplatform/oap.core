@@ -71,7 +71,7 @@
     </distributionManagement>
 
     <properties>
-        <oap.project.version>22.8.1</oap.project.version>
+        <oap.project.version>22.9.0</oap.project.version>
 
         <oap.deps.config.version>1.4.3</oap.deps.config.version>
         <oap.deps.oap-teamcity.version>22.0.0</oap.deps.oap-teamcity.version>
@@ -79,10 +79,7 @@
         <oap.deps.localstack.version>1.20.4</oap.deps.localstack.version>
         <oap.deps.mockito.version>5.11.0</oap.deps.mockito.version>
 
-        <oap.deps.apache.httpcomponents.version>4.4.16</oap.deps.apache.httpcomponents.version>
-        <oap.deps.apache.httpclient.version>4.5.14</oap.deps.apache.httpclient.version>
-        <oap.deps.apache.httpasyncclient.version>4.1.5</oap.deps.apache.httpasyncclient.version>
-        <oap.deps.apache.httpmime.version>4.5.14</oap.deps.apache.httpmime.version>
+        <oap.deps.okhttp.version>4.12.0</oap.deps.okhttp.version>
 
         <oap.deps.hadoop.version>3.4.1</oap.deps.hadoop.version>
         <oap.deps.aws-java-sdk-aws-crt.version>0.33.9</oap.deps.aws-java-sdk-aws-crt.version>
@@ -114,7 +111,7 @@
 
         <oap.deps.slack-api.version>v1.2.0.RELEASE</oap.deps.slack-api.version>
 
-        <oap.deps.undertow.version>2.3.15.Final</oap.deps.undertow.version>
+        <oap.deps.undertow.version>2.3.18.Final</oap.deps.undertow.version>
         <oap.deps.affinity.version>3.23.3</oap.deps.affinity.version>
 
         <oap.deps.docker-java.version>3.3.4</oap.deps.docker-java.version>

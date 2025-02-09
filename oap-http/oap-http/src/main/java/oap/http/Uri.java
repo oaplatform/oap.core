@@ -28,7 +28,6 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import oap.util.Maps;
 import oap.util.Pair;
-import org.apache.http.client.utils.URIBuilder;
 import org.yaml.snakeyaml.util.UriEncoder;
 
 import java.net.URI;

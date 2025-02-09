@@ -52,6 +52,7 @@ import lombok.Setter;
 import lombok.SneakyThrows;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import oap.http.Http;
 import oap.http.server.nio.HttpServerExchange;
 import oap.io.content.ContentWriter;
 import oap.reflect.Reflect;
@@ -60,7 +61,6 @@ import oap.ws.WsParam;
 import oap.ws.api.Info.WebMethodInfo;
 import oap.ws.openapi.swagger.DeprecationAnnotationResolver;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.entity.ContentType;
 
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
@@ -314,7 +314,7 @@ public class OpenapiGenerator {
             : api.getComponents().getSchemas();
         var result = new RequestBody();
         Schema schemaRef = openapiSchema.createSchemaRef( resolvedSchema.schema, schemas, false );
-        result.setContent( createContent( ContentType.APPLICATION_JSON.getMimeType(), schemaRef ) );
+        result.setContent( createContent( Http.ContentType.APPLICATION_JSON, schemaRef ) );
         if( resolvedSchema.schema != null
             && resolvedSchema.schema.getName() != null
             && schemas.containsKey( resolvedSchema.schema.getName() ) ) {

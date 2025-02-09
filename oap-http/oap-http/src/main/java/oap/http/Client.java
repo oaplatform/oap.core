@@ -26,8 +26,10 @@ package oap.http;
 import com.fasterxml.jackson.databind.MappingIterator;
 import com.google.common.base.Preconditions;
 import com.google.common.io.ByteStreams;
+import io.undertow.util.DateUtils;
 import lombok.SneakyThrows;
 import lombok.ToString;
+import lombok.experimental.ExtensionMethod;
 import lombok.extern.slf4j.Slf4j;
 import oap.concurrent.AsyncCallbacks;
 import oap.http.client.HttpClient;
@@ -38,56 +40,30 @@ import oap.json.Binder;
 import oap.reflect.TypeRef;
 import oap.util.BiStream;
 import oap.util.Dates;
+import oap.util.Lists;
 import oap.util.Maps;
 import oap.util.Pair;
 import oap.util.Result;
 import oap.util.Stream;
 import oap.util.Throwables;
 import oap.util.function.Try;
-import oap.util.function.Try.ThrowingRunnable;
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.FormBody;
+import okhttp3.JavaNetCookieJar;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.ResponseBody;
+import okio.BufferedSink;
+import okio.Okio;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.Header;
-import org.apache.http.HttpResponse;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.CookieStore;
-import org.apache.http.client.config.CookieSpecs;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpDelete;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPatch;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpPut;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.client.methods.HttpUriRequest;
-import org.apache.http.client.utils.DateUtils;
-import org.apache.http.concurrent.FutureCallback;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.ssl.DefaultHostnameVerifier;
-import org.apache.http.conn.util.PublicSuffixMatcherLoader;
-import org.apache.http.cookie.Cookie;
-import org.apache.http.entity.ByteArrayEntity;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.InputStreamEntity;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.DefaultConnectionKeepAliveStrategy;
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
-import org.apache.http.impl.nio.client.HttpAsyncClients;
-import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
-import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
-import org.apache.http.impl.nio.reactor.IOReactorConfig;
-import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.nio.conn.NoopIOSessionStrategy;
-import org.apache.http.nio.conn.SchemeIOSessionStrategy;
-import org.apache.http.nio.conn.ssl.SSLIOSessionStrategy;
-import org.apache.http.nio.reactor.IOReactorException;
-import org.apache.http.ssl.SSLContexts;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.joda.time.DateTime;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import java.io.BufferedInputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -96,7 +72,9 @@ import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.UncheckedIOException;
-import java.io.UnsupportedEncodingException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Date;
@@ -107,7 +85,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -120,36 +97,24 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static oap.http.Http.ContentType.APPLICATION_OCTET_STREAM;
 import static oap.io.IoStreams.Encoding.PLAIN;
 import static oap.io.ProgressInputStream.progress;
+import static org.joda.time.DateTimeZone.UTC;
 
 @Slf4j
+@ExtensionMethod( { Request.Builder.class, RequestBuilderExtensions.class } )
 public final class Client implements Closeable, AutoCloseable {
     public static final Client DEFAULT = custom()
         .onError( ( c, e ) -> log.error( e.getMessage(), e ) )
         .onTimeout( c -> log.error( "timeout" ) )
         .build();
     public static final String NO_RESPONSE = "no response";
-    private static final FutureCallback<org.apache.http.HttpResponse> FUTURE_CALLBACK = new FutureCallback<>() {
-        @Override
-        public void completed( org.apache.http.HttpResponse result ) {
-        }
-
-        @Override
-        public void failed( Exception e ) {
-            log.error( "Error appears", e );
-        }
-
-        @Override
-        public void cancelled() {
-        }
-    };
-    private final CookieStore cookieStore;
+    private final CookieManager cookieManager;
     private final ClientBuilder builder;
-    private CloseableHttpAsyncClient client;
+    private OkHttpClient client;
 
-    private Client( CookieStore cookieStore, ClientBuilder builder ) {
+    private Client( CookieManager cookieManager, ClientBuilder builder ) {
         this.client = builder.client();
 
-        this.cookieStore = cookieStore;
+        this.cookieManager = cookieManager;
         this.builder = builder;
     }
 
@@ -161,9 +126,9 @@ public final class Client implements Closeable, AutoCloseable {
         return new ClientBuilder( null, null, Dates.m( 1 ), Dates.m( 5 ) );
     }
 
-    private static List<Pair<String, String>> headers( org.apache.http.HttpResponse response ) {
-        return Stream.of( response.getAllHeaders() )
-            .map( h -> Pair.__( h.getName(), h.getValue() ) )
+    private static List<Pair<String, String>> headers( okhttp3.Response response ) {
+        return Stream.of( response.headers().toMultimap().entrySet() )
+            .flatMap( entry -> entry.getValue().stream().map( v -> Pair.__( entry.getKey(), v ) ) )
             .toList();
     }
 
@@ -209,9 +174,14 @@ public final class Client implements Closeable, AutoCloseable {
         return get( Uri.uri( uri, params ), headers, timeout );
     }
 
+    @SneakyThrows
     public Result<Response, Throwable> get( URI uri, Map<String, Object> headers, long timeout ) {
-        var request = new HttpGet( uri );
-        return getResponse( request, timeout, execute( request, headers ) );
+        Request request = new Request.Builder()
+            .url( uri.toURL() )
+            .get()
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, timeout, execute( request ) );
     }
 
     public Response post( String uri, Map<String, Object> params ) {
@@ -228,17 +198,18 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Result<Response, Throwable> post( String uri, Map<String, Object> params, Map<String, Object> headers, long timeout ) {
-        try {
-            var request = new HttpPost( uri );
-            request.setEntity( new UrlEncodedFormEntity( Stream.of( params.entrySet() )
-                .<NameValuePair>map( e -> new BasicNameValuePair( e.getKey(),
-                    e.getValue() == null ? "" : e.getValue().toString() ) )
-                .toList()
-            ) );
-            return getResponse( request, Math.max( builder.timeout, timeout ), execute( request, headers ) );
-        } catch( UnsupportedEncodingException e ) {
-            throw new UncheckedIOException( e );
-        }
+
+        FormBody.Builder formBodyBuilder = new FormBody.Builder();
+
+        params.forEach( ( k, v ) -> formBodyBuilder.add( k, v == null ? "" : v.toString() ) );
+
+        Request request = new Request.Builder()
+            .url( uri )
+            .post( formBodyBuilder.build() )
+            .addHeaders( headers )
+            .build();
+
+        return getResponse( request, Math.max( builder.timeout, timeout ), execute( request ) );
     }
 
     public Response post( String uri, String content, String contentType ) {
@@ -255,75 +226,93 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Result<Response, Throwable> post( String uri, String content, String contentType, Map<String, Object> headers, long timeout ) {
-        var request = new HttpPost( uri );
-        request.setEntity( new StringEntity( content, ContentType.create( contentType ) ) );
-        return getResponse( request, timeout, execute( request, headers ) );
+        Request request = new Request.Builder()
+            .url( uri )
+            .post( RequestBody.create( content, MediaType.get( contentType ) ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, timeout, execute( request ) );
     }
 
     public Result<Response, Throwable> post( String uri, byte[] content, long timeout ) {
-        var request = new HttpPost( uri );
-        request.setEntity( new ByteArrayEntity( content, ContentType.APPLICATION_OCTET_STREAM ) );
-        return getResponse( request, timeout, execute( request, Map.of() ) );
+        Request request = new Request.Builder()
+            .url( uri )
+            .post( RequestBody.create( content, MediaType.get( Http.ContentType.APPLICATION_OCTET_STREAM ) ) )
+            .build();
+
+        return getResponse( request, timeout, execute( request ) );
     }
 
     public Result<Response, Throwable> post( String uri, byte[] content, int off, int length, long timeout ) {
-        var request = new HttpPost( uri );
-        request.setEntity( new ByteArrayEntity( content, off, length, ContentType.APPLICATION_OCTET_STREAM ) );
-        return getResponse( request, timeout, execute( request, Map.of() ) );
+        Request request = new Request.Builder()
+            .url( uri )
+            .post( RequestBody.create( content, MediaType.get( Http.ContentType.APPLICATION_OCTET_STREAM ), off, length ) )
+            .build();
+
+        return getResponse( request, timeout, execute( request ) );
     }
 
     @SneakyThrows
-    public OutputStreamWithResponse post( String uri, ContentType contentType ) throws UncheckedIOException {
-        var request = new HttpPost( uri );
+    public OutputStreamWithResponse post( String uri, String contentType ) throws UncheckedIOException {
+        Request.Builder requestBuilder = new Request.Builder().url( uri );
 
-        return post( contentType, request );
+        return post( contentType, requestBuilder );
     }
 
     @SneakyThrows
-    public OutputStreamWithResponse post( URI uri, ContentType contentType ) throws UncheckedIOException {
-        var request = new HttpPost( uri );
+    public OutputStreamWithResponse post( URI uri, String contentType ) throws UncheckedIOException {
+        Request.Builder requestBuilder = new Request.Builder().url( uri.toURL() );
 
-        return post( contentType, request );
+        return post( contentType, requestBuilder );
     }
 
-    private OutputStreamWithResponse post( ContentType contentType, HttpPost request ) throws UncheckedIOException {
+    private OutputStreamWithResponse post( String contentType, Request.Builder requestBuilder ) throws UncheckedIOException {
         try {
-            var pos = new PipedOutputStream();
-            var pis = new PipedInputStream( pos );
-            request.setEntity( new InputStreamEntity( pis, contentType ) );
+            PipedOutputStream pos = new PipedOutputStream();
+            PipedInputStream pis = new PipedInputStream( pos );
 
-            return new OutputStreamWithResponse( pos, execute( request, Map.of() ), request, builder.timeout );
+            Request request = requestBuilder.post( new InputStreamRequestBody( contentType, pis ) ).build();
+
+            return new OutputStreamWithResponse( pos, execute( request ), request, builder.timeout );
         } catch( IOException e ) {
             throw new UncheckedIOException( e );
         }
     }
 
     public Response post( String uri, InputStream content, String contentType ) {
-        var request = new HttpPost( uri );
-        request.setEntity( new InputStreamEntity( content, ContentType.create( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, Map.of() ) )
+        Request request = new Request.Builder()
+            .url( uri )
+            .post( new InputStreamRequestBody( contentType, content ) )
+            .build();
+
+        return getResponse( request, builder.timeout, execute( request ) )
             .orElseThrow( Throwables::propagate );
     }
 
     public Response post( String uri, InputStream content, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPost( uri );
-        request.setEntity( new InputStreamEntity( content, ContentType.create( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
+        Request request = new Request.Builder()
+            .url( uri )
+            .post( new InputStreamRequestBody( contentType, content ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) )
             .orElseThrow( Throwables::propagate );
     }
 
     public Response post( String uri, byte[] content, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPost( uri );
-        request.setEntity( new ByteArrayEntity( content, ContentType.create( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .post( RequestBody.create( content, MediaType.get( contentType ) ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
-    private Result<Response, Throwable> getResponse( HttpRequestBase request, long timeout, CompletableFuture<Response> future ) {
+    private Result<Response, Throwable> getResponse( Request request, long timeout, CompletableFuture<Response> future ) {
         try {
             return Result.success( timeout == 0 ? future.get() : future.get( timeout, MILLISECONDS ) );
         } catch( ExecutionException e ) {
-            var newEx = new UncheckedIOException( request.getURI().toString(), new IOException( e.getCause().getMessage(), e.getCause() ) );
+            UncheckedIOException newEx = new UncheckedIOException( request.url().host(), new IOException( e.getCause().getMessage(), e.getCause() ) );
             builder.onError.accept( this, newEx );
             return Result.failure( e.getCause() );
         } catch( TimeoutException e ) {
@@ -337,10 +326,12 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Response put( String uri, String content, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPut( uri );
-        request.setEntity( new StringEntity( content, ContentType.create( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .put( RequestBody.create( content, MediaType.get( contentType ) ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
     public Response put( String uri, String content, String contentType ) {
@@ -348,10 +339,12 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Response put( String uri, byte[] content, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPut( uri );
-        request.setEntity( new ByteArrayEntity( content, ContentType.parse( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .put( RequestBody.create( content, MediaType.get( contentType ) ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
     public Response put( String uri, byte[] content, String contentType ) {
@@ -359,10 +352,12 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Response put( String uri, InputStream is, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPut( uri );
-        request.setEntity( new InputStreamEntity( is, ContentType.parse( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .put( new InputStreamRequestBody( contentType, is ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
     public Response put( String uri, InputStream is, String contentType ) {
@@ -370,10 +365,12 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Response patch( String uri, String content, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPatch( uri );
-        request.setEntity( new StringEntity( content, ContentType.create( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .patch( RequestBody.create( content, MediaType.get( contentType ) ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
     public Response patch( String uri, String content, String contentType ) {
@@ -381,10 +378,12 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Response patch( String uri, byte[] content, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPatch( uri );
-        request.setEntity( new ByteArrayEntity( content, ContentType.parse( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .patch( RequestBody.create( content, MediaType.get( contentType ) ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
     public Response patch( String uri, byte[] content, String contentType ) {
@@ -392,10 +391,12 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Response patch( String uri, InputStream is, String contentType, Map<String, Object> headers ) {
-        var request = new HttpPatch( uri );
-        request.setEntity( new InputStreamEntity( is, ContentType.parse( contentType ) ) );
-        return getResponse( request, builder.timeout, execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .patch( new InputStreamRequestBody( contentType, is ) )
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, builder.timeout, execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
     public Response patch( String uri, InputStream is, String contentType ) {
@@ -415,72 +416,72 @@ public final class Client implements Closeable, AutoCloseable {
     }
 
     public Response delete( String uri, Map<String, Object> headers, long timeout ) {
-        var request = new HttpDelete( uri );
-        return getResponse( request, Math.max( builder.timeout, timeout ), execute( request, headers ) )
-            .orElseThrow( Throwables::propagate );
+        Request request = new Request.Builder()
+            .url( uri )
+            .delete()
+            .addHeaders( headers )
+            .build();
+        return getResponse( request, Math.max( builder.timeout, timeout ), execute( request ) ).orElseThrow( Throwables::propagate );
     }
 
     public List<Cookie> getCookies() {
-        return cookieStore.getCookies();
-    }
-
-    public void clearCookies() {
-        cookieStore.clear();
-    }
-
-    private CompletableFuture<Response> execute( HttpUriRequest request, Map<String, Object> headers ) {
-        return execute( request, headers, () -> {} );
+        return Lists.map( cookieManager.getCookieStore().getCookies(), c -> toOapCookie( c ) );
     }
 
     @SneakyThrows
-    private CompletableFuture<Response> execute( HttpUriRequest request, Map<String, Object> headers,
-                                                 ThrowingRunnable asyncRunnable ) {
-        headers.forEach( ( name, value ) -> request.setHeader( name, value == null ? "" : value.toString() ) );
+    private Cookie toOapCookie( HttpCookie c ) {
+        long whenCreated = ( long ) FieldUtils.readField( c, "whenCreated", true );
+        long maxAge = c.getMaxAge();
+        Date expires;
+        if( maxAge > 0 ) {
+            expires = new DateTime( whenCreated + ( maxAge + 1000 ), UTC ).toDate();
+        } else if( maxAge == 0 ) {
+            expires = null;
+        } else {
+            expires = new DateTime( UTC ).toDate();
+        }
 
-        var completableFuture = new CompletableFuture<Response>();
+        return new Cookie(
+            c.getName(),
+            c.getValue(),
+            c.getPath(),
+            c.getDomain(),
+            maxAge < 0 ? null : ( int ) maxAge,
+            expires,
+            c.getDiscard(),
+            c.getSecure(),
+            c.isHttpOnly(),
+            c.getVersion(),
+            c.getComment()
+        );
+    }
 
-        client.execute( request, new FutureCallback<>() {
+    public void clearCookies() {
+        cookieManager.getCookieStore().removeAll();
+    }
+
+    @SneakyThrows
+    private CompletableFuture<Response> execute( Request request ) {
+        CompletableFuture<Response> completableFuture = new CompletableFuture<Response>();
+
+        client.newCall( request ).enqueue( new Callback() {
             @Override
-            public void completed( HttpResponse response ) {
-                try {
-                    var responseHeaders = headers( response );
-                    Response result;
-                    if( response.getEntity() != null ) {
-                        var entity = response.getEntity();
-                        result = new Response(
-                            response.getStatusLine().getStatusCode(),
-                            response.getStatusLine().getReasonPhrase(),
-                            responseHeaders,
-                            entity.getContentType() != null
-                                ? entity.getContentType().getValue()
-                                : APPLICATION_OCTET_STREAM,
-                            entity.getContent()
-                        );
-                    } else result = new Response(
-                        response.getStatusLine().getStatusCode(),
-                        response.getStatusLine().getReasonPhrase(),
-                        responseHeaders
-                    );
-                    builder.onSuccess.accept( Client.this );
-
-                    completableFuture.complete( result );
-                } catch( IOException e ) {
-                    completableFuture.completeExceptionally( e );
-                }
+            public void onFailure( Call call, IOException e ) {
+                completableFuture.completeExceptionally( e );
             }
 
             @Override
-            public void failed( Exception ex ) {
-                completableFuture.completeExceptionally( ex );
-            }
-
-            @Override
-            public void cancelled() {
-                completableFuture.cancel( false );
+            public void onResponse( Call call, okhttp3.Response response ) throws IOException {
+                ResponseBody body = response.body();
+                completableFuture.complete( new Response(
+                    response.code(),
+                    response.message(),
+                    headers( response ),
+                    body.contentType() != null ? body.contentType().toString() : APPLICATION_OCTET_STREAM,
+                    body.byteStream()
+                ) );
             }
         } );
-
-        asyncRunnable.run();
 
         return completableFuture;
     }
@@ -488,33 +489,34 @@ public final class Client implements Closeable, AutoCloseable {
     @SneakyThrows
     public Optional<Path> download( String url, Optional<Long> modificationTime, Optional<Path> file, Consumer<Integer> progress ) {
         try {
-            var response = resolve( url, modificationTime ).orElse( null );
-            if( response == null ) return Optional.empty();
+            try( okhttp3.Response response = resolve( url, modificationTime ).orElse( null ) ) {
+                if( response == null ) return Optional.empty();
 
-            var entity = response.getEntity();
+                try( ResponseBody entity = response.body() ) {
+                    final Path path = file.orElseGet( Try.supply( () -> {
+                        final IoStreams.Encoding encoding = IoStreams.Encoding.from( url );
 
-            final Path path = file.orElseGet( Try.supply( () -> {
-                final IoStreams.Encoding encoding = IoStreams.Encoding.from( url );
+                        final File tempFile = File.createTempFile( "file", "down" + encoding.extension );
+                        tempFile.deleteOnExit();
+                        return tempFile.toPath();
+                    } ) );
 
-                final File tempFile = File.createTempFile( "file", "down" + encoding.extension );
-                tempFile.deleteOnExit();
-                return tempFile.toPath();
-            } ) );
+                    try( InputStream in = entity.byteStream() ) {
+                        IoStreams.write( path, PLAIN, in, false, file.isPresent(), progress( entity.contentLength(), progress ) );
+                    }
 
-            try( InputStream in = new BufferedInputStream( entity.getContent() ) ) {
-                IoStreams.write( path, PLAIN, in, false, file.isPresent(), progress( entity.getContentLength(), progress ) );
+                    String lastModified = response.header( "Last-Modified" );
+                    if( lastModified != null ) {
+                        final Date date = DateUtils.parseDate( lastModified );
+
+                        Files.setLastModifiedTime( path, date.getTime() );
+                    }
+
+                    builder.onSuccess.accept( this );
+
+                    return Optional.of( path );
+                }
             }
-
-            final Header lastModified = response.getLastHeader( "Last-Modified" );
-            if( lastModified != null ) {
-                final Date date = DateUtils.parseDate( lastModified.getValue() );
-
-                Files.setLastModifiedTime( path, date.getTime() );
-            }
-
-            builder.onSuccess.accept( this );
-
-            return Optional.of( path );
         } catch( ExecutionException | IOException e ) {
             builder.onError.accept( this, e );
             throw e;
@@ -525,33 +527,49 @@ public final class Client implements Closeable, AutoCloseable {
         }
     }
 
-    private Optional<HttpResponse> resolve( String url, Optional<Long> ifModifiedSince ) throws InterruptedException, ExecutionException, IOException {
-        HttpGet request = new HttpGet( url );
-        ifModifiedSince.ifPresent( ims -> request.addHeader( "If-Modified-Since", DateUtils.formatDate( new Date( ims ) ) ) );
-        Future<HttpResponse> future = client.execute( request, FUTURE_CALLBACK );
-        HttpResponse response = future.get();
-        if( response.getStatusLine().getStatusCode() == HTTP_OK && response.getEntity() != null )
+    private Optional<okhttp3.Response> resolve( String url, Optional<Long> ifModifiedSince ) throws InterruptedException, ExecutionException, IOException {
+        Request.Builder requestBuilder = new Request.Builder()
+            .url( url )
+            .get();
+
+        ifModifiedSince.ifPresent( ims -> requestBuilder.addHeader( "If-Modified-Since", DateUtils.toDateString( new Date( ims ) ) ) );
+
+        Request request = requestBuilder.build();
+
+        okhttp3.Response response = client.newCall( request ).execute();
+        if( response.code() == HTTP_OK )
             return Optional.of( response );
-        else if( response.getStatusLine().getStatusCode() == HTTP_MOVED_TEMP ) {
-            Header location = response.getFirstHeader( "Location" );
+        else if( response.code() == HTTP_MOVED_TEMP ) {
+            String location = response.header( "Location" );
             if( location == null ) throw new IOException( "redirect w/o location!" );
-            log.debug( "following {}", location.getValue() );
-            return resolve( location.getValue(), Optional.empty() );
-        } else if( response.getStatusLine().getStatusCode() == HTTP_NOT_MODIFIED ) {
+            log.debug( "following {}", location );
+
+            response.close();
+
+            return resolve( location, Optional.empty() );
+        } else if( response.code() == HTTP_NOT_MODIFIED ) {
+            response.close();
             return Optional.empty();
-        } else
-            throw new IOException( response.getStatusLine().toString() );
+        } else {
+            response.close();
+            throw new IOException( response.message() );
+        }
     }
 
     public void reset() {
-        Closeables.close( client );
+        close();
+
         client = builder.client();
         clearCookies();
     }
 
     @Override
     public void close() {
-        Closeables.close( client );
+        if( client != null ) {
+            client.dispatcher().executorService().shutdown();
+            client.connectionPool().evictAll();
+            Closeables.close( client.cache() );
+        }
     }
 
     @ToString( exclude = { "inputStream", "content" }, doNotUseGetters = true )
@@ -691,15 +709,14 @@ public final class Client implements Closeable, AutoCloseable {
         private final Path certificateLocation;
         private final String certificatePassword;
         private final long timeout;
-        private CookieStore cookieStore;
+        private CookieManager cookieManager;
         private long connectTimeout;
         private int maxConnTotal = 10000;
         private int maxConnPerRoute = 1000;
         private boolean redirectsEnabled = false;
-        private String cookieSpec = CookieSpecs.STANDARD;
 
         public ClientBuilder( Path certificateLocation, String certificatePassword, long connectTimeout, long timeout ) {
-            cookieStore = new BasicCookieStore();
+            cookieManager = new CookieManager();
 
             this.certificateLocation = certificateLocation;
             this.certificatePassword = certificatePassword;
@@ -707,50 +724,10 @@ public final class Client implements Closeable, AutoCloseable {
             this.timeout = timeout;
         }
 
-        public ClientBuilder withCookieStore( CookieStore cookieStore ) {
-            this.cookieStore = cookieStore;
+        public ClientBuilder withCookieManager( CookieManager cookieManager ) {
+            this.cookieManager = cookieManager;
 
             return this;
-        }
-
-        private HttpAsyncClientBuilder initialize() {
-            try {
-                final PoolingNHttpClientConnectionManager connManager = new PoolingNHttpClientConnectionManager(
-                    new DefaultConnectingIOReactor( IOReactorConfig.custom()
-                        .setConnectTimeout( ( int ) connectTimeout )
-                        .setSoTimeout( ( int ) timeout )
-                        .build() ),
-                    RegistryBuilder.<SchemeIOSessionStrategy>create()
-                        .register( "http", NoopIOSessionStrategy.INSTANCE )
-                        .register( "https",
-                            new SSLIOSessionStrategy( certificateLocation != null
-                                ? HttpClient.createSSLContext( certificateLocation, certificatePassword )
-                                : SSLContexts.createDefault(),
-                                split( System.getProperty( "https.protocols" ) ),
-                                split( System.getProperty( "https.cipherSuites" ) ),
-                                new DefaultHostnameVerifier( PublicSuffixMatcherLoader.getDefault() ) ) )
-                        .build() );
-
-                connManager.setMaxTotal( maxConnTotal );
-                connManager.setDefaultMaxPerRoute( maxConnPerRoute );
-
-                return ( certificateLocation != null
-                    ? HttpAsyncClients.custom()
-                    .setSSLContext( HttpClient.createSSLContext( certificateLocation, certificatePassword ) )
-                    : HttpAsyncClients.custom() )
-                    .setMaxConnPerRoute( maxConnPerRoute )
-                    .setConnectionManager( connManager )
-                    .setMaxConnTotal( maxConnTotal )
-                    .setKeepAliveStrategy( DefaultConnectionKeepAliveStrategy.INSTANCE )
-                    .setDefaultRequestConfig( RequestConfig
-                        .custom()
-                        .setRedirectsEnabled( redirectsEnabled )
-                        .setCookieSpec( cookieSpec )
-                        .build() )
-                    .setDefaultCookieStore( cookieStore );
-            } catch( IOReactorException e ) {
-                throw new UncheckedIOException( e );
-            }
         }
 
         public ClientBuilder setConnectTimeout( long connectTimeout ) {
@@ -777,31 +754,59 @@ public final class Client implements Closeable, AutoCloseable {
             return this;
         }
 
-        public ClientBuilder setCookieSpec( String cookieSpec ) {
-            this.cookieSpec = cookieSpec;
+        private OkHttpClient client() {
+            OkHttpClient.Builder builder = new OkHttpClient.Builder();
 
-            return this;
-        }
+            CookieManager cookieManager = new CookieManager();
+            cookieManager.setCookiePolicy( CookiePolicy.ACCEPT_ALL );
 
-        private CloseableHttpAsyncClient client() {
-            final CloseableHttpAsyncClient build = initialize().build();
-            build.start();
-            return build;
+
+            builder.connectTimeout( connectTimeout, MILLISECONDS )
+                .callTimeout( timeout, MILLISECONDS )
+                .followRedirects( redirectsEnabled )
+                .followSslRedirects( redirectsEnabled )
+                .cookieJar( new JavaNetCookieJar( cookieManager ) );
+
+            if( certificateLocation != null ) {
+                builder.sslSocketFactory( HttpClient.createSSLContext( certificateLocation, certificatePassword ).getSocketFactory(), HttpClient.createX509TrustManager() );
+            }
+
+            return builder.build();
         }
 
         public Client build() {
-            return new Client( cookieStore, this );
+            return new Client( cookieManager, this );
+        }
+    }
+
+    public static class InputStreamRequestBody extends RequestBody {
+        private final MediaType mediaType;
+        private final InputStream inputStream;
+
+        public InputStreamRequestBody( String contentType, InputStream inputStream ) {
+            this.mediaType = MediaType.get( contentType.toString() );
+            this.inputStream = inputStream;
+        }
+
+        @Override
+        public MediaType contentType() {
+            return mediaType;
+        }
+
+        @Override
+        public void writeTo( BufferedSink bufferedSink ) throws IOException {
+            bufferedSink.writeAll( Okio.source( inputStream ) );
         }
     }
 
     public class OutputStreamWithResponse extends OutputStream implements Closeable, AutoCloseable {
         private final CompletableFuture<Response> completableFuture;
-        private final HttpRequestBase request;
+        private final Request request;
         private final long timeout;
         private PipedOutputStream pos;
         private Response response;
 
-        public OutputStreamWithResponse( PipedOutputStream pos, CompletableFuture<Response> completableFuture, HttpRequestBase request, long timeout ) {
+        public OutputStreamWithResponse( PipedOutputStream pos, CompletableFuture<Response> completableFuture, Request request, long timeout ) {
             this.pos = pos;
             this.completableFuture = completableFuture;
             this.request = request;

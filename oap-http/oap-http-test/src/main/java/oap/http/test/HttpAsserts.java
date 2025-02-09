@@ -57,7 +57,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SuppressWarnings( "unused" )
 public class HttpAsserts {
     private static final Client client = Client.custom()
-        .withCookieStore( new MockCookieStore() )
         .onError( ( c, e ) -> log.error( e.getMessage() ) )
         .build();
 

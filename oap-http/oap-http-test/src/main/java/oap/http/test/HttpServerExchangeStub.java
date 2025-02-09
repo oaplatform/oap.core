@@ -35,8 +35,8 @@ import io.undertow.util.HeaderMap;
 import io.undertow.util.HttpString;
 import io.undertow.util.Protocols;
 import lombok.SneakyThrows;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.utils.URLEncodedUtils;
+import oap.http.URLEncodedUtils;
+import oap.util.Pair;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.xnio.OptionMap;
@@ -68,10 +68,10 @@ public class HttpServerExchangeStub {
         exchange.setRequestMethod( method );
         exchange.exchange.setQueryString( uri );
 
-        List<NameValuePair> params = URLEncodedUtils.parse( uri, StandardCharsets.UTF_8 );
+        List<Pair<String, String>> params = URLEncodedUtils.parse( uri, StandardCharsets.UTF_8 );
 
         for( var nvp : params ) {
-            exchange.exchange.addQueryParam( nvp.getName(), nvp.getValue() );
+            exchange.exchange.addQueryParam( nvp._1, nvp._2 );
         }
 
         return exchange;

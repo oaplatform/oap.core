@@ -27,6 +27,7 @@ package oap.ws.api;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import oap.http.server.nio.HttpServerExchange;
+import oap.io.MimeTypes;
 import oap.reflect.Reflect;
 import oap.reflect.Reflection;
 import oap.util.BiStream;
@@ -46,19 +47,12 @@ import static java.util.Comparator.comparing;
 import static oap.http.server.nio.HttpServerExchange.HttpMethod.GET;
 import static oap.http.server.nio.HttpServerExchange.HttpMethod.POST;
 import static oap.ws.WsParam.From.QUERY;
-import static org.apache.http.entity.ContentType.APPLICATION_JSON;
 
 public class Info {
     private final WebServices webServices;
 
     public Info( WebServices webServices ) {
         this.webServices = webServices;
-    }
-
-    public List<WebServiceInfo> services() {
-        return BiStream.of( webServices.services )
-            .mapToObj( ( context, ws ) -> new WebServiceInfo( Reflect.reflect( ws.getClass() ), context ) )
-            .toList();
     }
 
     private static boolean isWebMethod( Reflection.Method m ) {
@@ -68,12 +62,18 @@ public class Info {
             && m.isPublic();
     }
 
+    public List<WebServiceInfo> services() {
+        return BiStream.of( webServices.services )
+            .mapToObj( ( context, ws ) -> new WebServiceInfo( Reflect.reflect( ws.getClass() ), context ) )
+            .toList();
+    }
+
     @EqualsAndHashCode
     @ToString
     public static class WebServiceInfo {
-        private final Reflection reflection;
         public final String context;
         public final String name;
+        private final Reflection reflection;
 
         public WebServiceInfo( Reflection clazz, String context ) {
             this.reflection = clazz;
@@ -94,7 +94,6 @@ public class Info {
     @EqualsAndHashCode
     @ToString
     public static class WebMethodInfo {
-        private final Reflection.Method method;
         public final String path;
         public final List<HttpServerExchange.HttpMethod> methods;
         public final String produces;
@@ -104,6 +103,7 @@ public class Info {
         public final String realm;
         public final List<String> permissions;
         public final boolean secure;
+        private final Reflection.Method method;
 
 
         public WebMethodInfo( Reflection.Method method ) {
@@ -118,11 +118,19 @@ public class Info {
             this.path = wsMethod.map( m -> Strings.isUndefined( m.path() ) ? method.name() : m.path() )
                 .orElse( "/" + method.name() );
             this.methods = wsMethod.map( m -> List.of( m.method() ) ).orElse( List.of( GET, POST ) );
-            this.produces = wsMethod.map( WsMethod::produces ).orElse( APPLICATION_JSON.getMimeType() );
+            this.produces = wsMethod.map( WsMethod::produces ).orElse( MimeTypes.APPLICATION_JSON );
             this.description = wsMethod
                 .filter( m -> !Strings.isUndefined( m.description() ) )
                 .map( WsMethod::description )
                 .orElse( "" ).trim();
+        }
+
+        private static boolean isWebParameter( Reflection.Parameter parameter ) {
+            return !parameter.type().assignableTo( HttpServerExchange.class )
+                && parameter
+                .findAnnotation( WsParam.class )
+                .map( wsp -> wsp.from() != WsParam.From.SESSION )
+                .orElse( true );
         }
 
         public String path( WebServiceInfo ws ) {
@@ -141,24 +149,16 @@ public class Info {
                 .toList();
         }
 
-        private static boolean isWebParameter( Reflection.Parameter parameter ) {
-            return !parameter.type().assignableTo( HttpServerExchange.class )
-                && parameter
-                    .findAnnotation( WsParam.class )
-                    .map( wsp -> wsp.from() != WsParam.From.SESSION )
-                    .orElse( true );
-        }
-
         public boolean shouldBeIgnored() {
             return method.isAnnotatedWith( OpenapiIgnore.class );
         }
     }
 
     public static class WebMethodParameterInfo {
-        private final Reflection.Parameter parameter;
         public final String name;
         public final WsParam.From from;
         public final String description;
+        private final Reflection.Parameter parameter;
 
         public WebMethodParameterInfo( Reflection.Parameter parameter ) {
             this.parameter = parameter;
